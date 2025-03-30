@@ -1,4 +1,5 @@
 use crate::logger::interface::Logger;
+use chrono::Local;
 
 #[derive(Debug, Clone)]
 pub struct ConsoleLogger {
@@ -13,7 +14,8 @@ impl ConsoleLogger {
 
 impl Logger for ConsoleLogger {
     fn info(&self, message: &str) -> Result<(), Box<dyn std::error::Error>> {
-        println!("{}: {}", self.namespace, message);
+        let now = Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
+        println!("[{}] {}: {}", now, self.namespace, message);
         Ok(())
     }
 
