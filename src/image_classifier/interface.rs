@@ -7,6 +7,6 @@ pub struct Classification {
 pub trait ImageClassifier {
     fn classify(
         &self,
-        image: &[u8],
-    ) -> Result<Vec<Classification>, Box<dyn std::error::Error + Send + Sync>>;
+        frames: Vec<Vec<u8>>,
+    ) -> Result<Vec<Vec<Classification>>, Box<dyn std::error::Error + Send + Sync>>;
 }

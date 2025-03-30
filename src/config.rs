@@ -19,28 +19,28 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            classification_rate: std::time::Duration::from_secs(3),
+            classification_rate: std::time::Duration::from_secs(1),
             logger_timezone: mountain_standard_time(),
             unlock_grace_period: Duration::from_secs(3),
             classification_lock_list: vec![
                 ClassificationConfig {
                     label: "cat".to_string(),
-                    min_confidence: 0.7,
+                    min_confidence: 0.5,
                 },
-                ClassificationConfig {
-                    label: "turtle".to_string(),
-                    min_confidence: 0.7,
-                },
+                // ClassificationConfig {
+                //     label: "turtle".to_string(),
+                //     min_confidence: 0.7,
+                // },
             ],
             classification_unlock_list: vec![
                 ClassificationConfig {
                     label: "dog".to_string(),
-                    min_confidence: 0.7,
+                    min_confidence: 0.8,
                 },
-                ClassificationConfig {
-                    label: "person".to_string(),
-                    min_confidence: 0.7,
-                },
+                // ClassificationConfig {
+                //     label: "person".to_string(),
+                //     min_confidence: 0.7,
+                // },
             ],
         }
     }

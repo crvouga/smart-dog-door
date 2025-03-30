@@ -29,12 +29,12 @@ impl DeviceCamera for DeviceCameraFake {
         Ok(())
     }
 
-    fn capture_frame(&self) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+    fn capture_frame(&self) -> Result<Vec<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>> {
         self.logger.info("Capturing frame...")?;
         std::thread::sleep(std::time::Duration::from_secs(1));
         let image = vec![0; 100 * 100 * 3];
         self.logger.info("Frame captured")?;
-        Ok(image)
+        Ok(vec![image])
     }
 
     fn events(&self) -> std::sync::mpsc::Receiver<DeviceCameraEvent> {

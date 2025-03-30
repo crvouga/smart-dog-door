@@ -19,8 +19,8 @@ impl ImageClassifierFake {
 impl ImageClassifier for ImageClassifierFake {
     fn classify(
         &self,
-        _image: &[u8],
-    ) -> Result<Vec<Classification>, Box<dyn std::error::Error + Send + Sync>> {
+        _frames: Vec<Vec<u8>>,
+    ) -> Result<Vec<Vec<Classification>>, Box<dyn std::error::Error + Send + Sync>> {
         self.logger.info("Classifying image...")?;
 
         std::thread::sleep(std::time::Duration::from_secs(1));
@@ -47,6 +47,6 @@ impl ImageClassifier for ImageClassifierFake {
 
         self.logger.info("Classified image")?;
 
-        Ok(classifications)
+        Ok(vec![classifications])
     }
 }

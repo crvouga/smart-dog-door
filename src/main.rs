@@ -1,3 +1,5 @@
+use device_camera::impl_multi::MultiDeviceCamera;
+
 use crate::{
     config::Config,
     device_camera::{impl_fake::DeviceCameraFake, interface::DeviceCamera},
@@ -22,10 +24,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let logger = Arc::new(LoggerConsole::new(config.logger_timezone));
 
-    let device_cameras = vec![
+    let device_camera = Arc::new(MultiDeviceCamera::new(vec![
         Arc::new(DeviceCameraFake::new(logger.clone())) as Arc<dyn DeviceCamera + Send + Sync>,
         Arc::new(DeviceCameraFake::new(logger.clone())) as Arc<dyn DeviceCamera + Send + Sync>,
-    ];
+    ]));
 
     let device_door = Arc::new(DeviceDoorFake::new(logger.clone()));
 
@@ -36,7 +38,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let smart_door = SmartDoor::new(
         config,
         logger,
-        device_cameras,
+        device_camera,
         device_door,
         device_display,
         image_classifier,

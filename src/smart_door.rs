@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 #[derive(Default, Clone)]
 pub struct DeviceStates {
-    cameras: Vec<CameraState>,
+    camera: CameraState,
     door: DoorState,
 }
 
@@ -73,16 +73,15 @@ pub enum DoorAction {
 
 #[derive(Debug)]
 pub enum Event {
-    CameraEvent(usize, DeviceCameraEvent),
-    // CameraStarting(usize),
-    CameraStartDone(usize, Result<(), Box<dyn std::error::Error + Send + Sync>>),
+    CameraEvent(DeviceCameraEvent),
+    CameraStartDone(Result<(), Box<dyn std::error::Error + Send + Sync>>),
     DoorEvent(DeviceDoorEvent),
     DoorLockStart,
     DoorLockDone(Result<(), Box<dyn std::error::Error + Send + Sync>>),
     DoorUnlockStart,
     DoorUnlockDone(Result<(), Box<dyn std::error::Error + Send + Sync>>),
-    FrameClassifyStart,
-    FrameClassifyDone(Result<Vec<Classification>, Box<dyn std::error::Error + Send + Sync>>),
+    FramesClassifyStart,
+    FramesClassifyDone(Result<Vec<Vec<Classification>>, Box<dyn std::error::Error + Send + Sync>>),
     FramesCaptureStart,
     FramesCaptureDone(Result<Vec<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>>),
     DelayStart,
@@ -94,7 +93,7 @@ pub enum Event {
 impl Event {
     fn to_display_string(&self) -> String {
         match self {
-            Event::FramesCaptureDone(Ok(_)) => {
+            Event::FramesCaptureDone(Ok(_frames)) => {
                 format!("{:?}", Event::FramesCaptureDone(Ok(vec![])))
             }
             event => format!("{:?}", event),
@@ -104,14 +103,14 @@ impl Event {
 
 #[derive(Clone, Debug)]
 pub enum Effect {
-    StartCamera(usize),
+    StartCamera,
     LockDoor,
     UnlockDoor,
     CaptureFrames,
     ClassifyFrames { frames: Vec<Vec<u8>> },
     Delay,
     GracePeriodDelay,
-    SubscribeToCameraEvents(usize),
+    SubscribeToCameraEvents,
     SubscribeToDoorEvents,
     StartCountdown,
 }
@@ -131,7 +130,7 @@ impl Effect {
 pub struct SmartDoor {
     config: Config,
     logger: Arc<dyn Logger + Send + Sync>,
-    device_cameras: Vec<Arc<dyn DeviceCamera + Send + Sync>>,
+    device_camera: Arc<dyn DeviceCamera + Send + Sync>,
     device_door: Arc<dyn DeviceDoor + Send + Sync>,
     device_display: Arc<Mutex<dyn DeviceDisplay + Send + Sync>>,
     image_classifier: Arc<dyn ImageClassifier + Send + Sync>,
@@ -143,7 +142,7 @@ impl SmartDoor {
     pub fn new(
         config: Config,
         logger: Arc<dyn Logger + Send + Sync>,
-        device_cameras: Vec<Arc<dyn DeviceCamera + Send + Sync>>,
+        device_camera: Arc<dyn DeviceCamera + Send + Sync>,
         device_door: Arc<dyn DeviceDoor + Send + Sync>,
         device_display: Arc<Mutex<dyn DeviceDisplay + Send + Sync>>,
         image_classifier: Arc<dyn ImageClassifier + Send + Sync>,
@@ -152,7 +151,7 @@ impl SmartDoor {
         Self {
             config,
             logger,
-            device_cameras,
+            device_camera,
             device_door,
             device_display,
             image_classifier,
@@ -162,19 +161,14 @@ impl SmartDoor {
     }
 
     fn init(&self) -> (State, Vec<Effect>) {
-        let mut effects = vec![Effect::SubscribeToDoorEvents];
-        for i in 0..self.device_cameras.len() {
-            effects.push(Effect::SubscribeToCameraEvents(i));
-        }
-
         (
             State::DevicesInitializing {
-                device_states: DeviceStates {
-                    cameras: vec![CameraState::default(); self.device_cameras.len()],
-                    door: DoorState::default(),
-                },
+                device_states: DeviceStates::default(),
             },
-            effects,
+            vec![
+                Effect::SubscribeToDoorEvents,
+                Effect::SubscribeToCameraEvents,
+            ],
         )
     }
 
@@ -183,27 +177,18 @@ impl SmartDoor {
             // Device connection handling
             (
                 State::DevicesInitializing { mut device_states },
-                Event::CameraEvent(camera_idx, DeviceCameraEvent::Connected),
+                Event::CameraEvent(DeviceCameraEvent::Connected),
             ) => {
-                device_states.cameras[camera_idx] = CameraState::Connected(Instant::now());
+                device_states.camera = CameraState::Connected(Instant::now());
                 (
                     State::DevicesInitializing { device_states },
-                    vec![Effect::StartCamera(camera_idx)],
+                    vec![Effect::StartCamera],
                 )
             }
-            (
-                State::DevicesInitializing { mut device_states },
-                Event::CameraStartDone(camera_idx, Ok(())),
-            ) => {
-                device_states.cameras[camera_idx] = CameraState::Started;
+            (State::DevicesInitializing { mut device_states }, Event::CameraStartDone(Ok(()))) => {
+                device_states.camera = CameraState::Started;
 
-                // Check if all cameras are started
-                let all_cameras_started = device_states
-                    .cameras
-                    .iter()
-                    .all(|state| matches!(state, CameraState::Started));
-
-                if all_cameras_started && matches!(device_states.door, DoorState::Initialized) {
+                if matches!(device_states.door, DoorState::Initialized) {
                     (
                         State::CapturingFrames {
                             door_state: DoorState::Locked,
@@ -219,7 +204,7 @@ impl SmartDoor {
                 Event::DoorEvent(DeviceDoorEvent::Connected),
             ) => {
                 let new_states = DeviceStates {
-                    cameras: device_states.cameras,
+                    camera: device_states.camera,
                     door: DoorState::Connected(Instant::now()),
                 };
                 (
@@ -232,12 +217,7 @@ impl SmartDoor {
             (State::DevicesInitializing { mut device_states }, Event::DoorLockDone(Ok(()))) => {
                 device_states.door = DoorState::Initialized;
 
-                let all_cameras_started = device_states
-                    .cameras
-                    .iter()
-                    .all(|state| matches!(state, CameraState::Started));
-
-                if all_cameras_started {
+                if matches!(device_states.camera, CameraState::Started) {
                     (
                         State::CapturingFrames {
                             door_state: DoorState::Locked,
@@ -250,36 +230,49 @@ impl SmartDoor {
             }
 
             // Main loop
-            (State::CapturingFrames { door_state }, Event::FramesCaptureDone(Ok(frames))) => (
-                State::ClassifyingFrames { door_state },
-                vec![Effect::ClassifyFrames { frames }],
-            ),
+            (State::CapturingFrames { door_state }, Event::FramesCaptureDone(Ok(frames))) => {
+                if !frames.is_empty() {
+                    (
+                        State::ClassifyingFrames { door_state },
+                        vec![Effect::ClassifyFrames { frames }],
+                    )
+                } else {
+                    (
+                        State::CapturingFrames { door_state },
+                        vec![Effect::CaptureFrames],
+                    )
+                }
+            }
             (
                 State::ClassifyingFrames { door_state },
-                Event::FrameClassifyDone(Ok(classifications)),
+                Event::FramesClassifyDone(Ok(classifications)),
             ) => {
-                let should_unlock = classifications.iter().any(|c| {
-                    self.config
-                        .classification_unlock_list
-                        .iter()
-                        .any(|unlock_config| {
-                            c.label
-                                .to_lowercase()
-                                .contains(&unlock_config.label.to_lowercase())
-                                && c.confidence >= unlock_config.min_confidence
-                        })
+                let should_unlock = classifications.iter().any(|frame_class| {
+                    frame_class.iter().any(|c| {
+                        self.config
+                            .classification_unlock_list
+                            .iter()
+                            .any(|unlock_config| {
+                                c.label
+                                    .to_lowercase()
+                                    .contains(&unlock_config.label.to_lowercase())
+                                    && c.confidence >= unlock_config.min_confidence
+                            })
+                    })
                 });
 
-                let should_lock = classifications.iter().any(|c| {
-                    self.config
-                        .classification_lock_list
-                        .iter()
-                        .any(|lock_config| {
-                            c.label
-                                .to_lowercase()
-                                .contains(&lock_config.label.to_lowercase())
-                                && c.confidence >= lock_config.min_confidence
-                        })
+                let should_lock = classifications.iter().any(|frame_class| {
+                    frame_class.iter().any(|c| {
+                        self.config
+                            .classification_lock_list
+                            .iter()
+                            .any(|lock_config| {
+                                c.label
+                                    .to_lowercase()
+                                    .contains(&lock_config.label.to_lowercase())
+                                    && c.confidence >= lock_config.min_confidence
+                            })
+                    })
                 });
 
                 if should_unlock && !should_lock {
@@ -404,14 +397,12 @@ impl SmartDoor {
                 ),
             },
 
-            (_, Event::CameraEvent(camera_idx, DeviceCameraEvent::Disconnected)) => {
-                let mut device_states = DeviceStates {
-                    cameras: vec![CameraState::default(); self.device_cameras.len()],
-                    door: DoorState::default(),
-                };
-                device_states.cameras[camera_idx] = CameraState::Disconnected;
-                (State::DevicesInitializing { device_states }, vec![])
-            }
+            (_, Event::CameraEvent(DeviceCameraEvent::Disconnected)) => (
+                State::DevicesInitializing {
+                    device_states: DeviceStates::default(),
+                },
+                vec![],
+            ),
             (_, Event::DoorEvent(DeviceDoorEvent::Disconnected)) => {
                 let mut effects = vec![];
                 if matches!(state, State::UnlockGracePeriod { .. }) {
@@ -449,15 +440,12 @@ impl SmartDoor {
                     }
                 }
             }
-            Effect::SubscribeToCameraEvents(camera_idx) => {
-                let events = self.device_cameras[camera_idx].events();
+            Effect::SubscribeToCameraEvents => {
+                let events = self.device_camera.events();
                 loop {
                     match events.recv() {
                         Ok(event) => {
-                            if event_queue
-                                .send(Event::CameraEvent(camera_idx, event))
-                                .is_err()
-                            {
+                            if event_queue.send(Event::CameraEvent(event)).is_err() {
                                 continue;
                             }
                         }
@@ -465,10 +453,9 @@ impl SmartDoor {
                     }
                 }
             }
-            Effect::StartCamera(camera_idx) => {
-                // let _ = event_queue.send(Event::CameraStarting(camera_idx));
-                let started = self.device_cameras[camera_idx].start();
-                let _ = event_queue.send(Event::CameraStartDone(camera_idx, started));
+            Effect::StartCamera => {
+                let started = self.device_camera.start();
+                let _ = event_queue.send(Event::CameraStartDone(started));
             }
             Effect::LockDoor => {
                 let _ = event_queue.send(Event::DoorLockStart);
@@ -482,31 +469,13 @@ impl SmartDoor {
             }
             Effect::CaptureFrames => {
                 let _ = event_queue.send(Event::FramesCaptureStart);
-                let mut frames = Vec::new();
-                for camera in &self.device_cameras {
-                    match camera.capture_frame() {
-                        Ok(frame) => frames.push(frame),
-                        Err(e) => {
-                            let _ = event_queue.send(Event::FramesCaptureDone(Err(e)));
-                            return;
-                        }
-                    }
-                }
-                let _ = event_queue.send(Event::FramesCaptureDone(Ok(frames)));
+                let frames = self.device_camera.capture_frame();
+                let _ = event_queue.send(Event::FramesCaptureDone(frames));
             }
             Effect::ClassifyFrames { frames } => {
-                let _ = event_queue.send(Event::FrameClassifyStart);
-                let mut all_classifications = Vec::new();
-                for frame in frames {
-                    match self.image_classifier.classify(&frame) {
-                        Ok(classifications) => all_classifications.extend(classifications),
-                        Err(e) => {
-                            let _ = event_queue.send(Event::FrameClassifyDone(Err(e)));
-                            return;
-                        }
-                    }
-                }
-                let _ = event_queue.send(Event::FrameClassifyDone(Ok(all_classifications)));
+                let _ = event_queue.send(Event::FramesClassifyStart);
+                let classifications = self.image_classifier.classify(frames.clone());
+                let _ = event_queue.send(Event::FramesClassifyDone(classifications));
             }
             Effect::Delay => {
                 let _ = event_queue.send(Event::DelayStart);
@@ -531,25 +500,21 @@ impl SmartDoor {
 
         match state {
             State::DevicesInitializing { device_states } => {
-                let mut camera_status = String::new();
-                for (i, camera_state) in device_states.cameras.iter().enumerate() {
-                    match camera_state {
-                        CameraState::Disconnected => {
-                            camera_status.push_str(&format!("Camera {} connecting... ", i + 1));
-                        }
-                        CameraState::Connected(time) => {
-                            if time.elapsed() > Duration::from_secs(2) {
-                                camera_status.push_str(&format!("Camera {} connected ", i + 1));
-                            } else {
-                                camera_status.push_str(&format!("Camera {} connecting... ", i + 1));
-                            }
-                        }
-                        CameraState::Started => {
-                            camera_status.push_str(&format!("Camera {} connected ", i + 1));
+                match device_states.camera {
+                    CameraState::Disconnected => {
+                        device_display.write_line(0, "Camera connecting...")?;
+                    }
+                    CameraState::Connected(time) => {
+                        if time.elapsed() > Duration::from_secs(2) {
+                            device_display.write_line(0, "Camera connected")?;
+                        } else {
+                            device_display.write_line(0, "Camera connecting...")?;
                         }
                     }
+                    CameraState::Started => {
+                        device_display.write_line(0, "Camera connected")?;
+                    }
                 }
-                device_display.write_line(0, &camera_status)?;
 
                 match device_states.door {
                     DoorState::Disconnected => {
