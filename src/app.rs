@@ -5,11 +5,11 @@ use crate::image_classifier::interface::{Classification, ImageClassifier};
 use crate::logger::interface::Logger;
 
 pub struct App {
+    config: Config,
+    logger: Box<dyn Logger>,
     camera: Box<dyn Camera>,
     dog_door: Box<dyn DogDoor>,
     image_classifier: Box<dyn ImageClassifier>,
-    config: Config,
-    logger: Box<dyn Logger>,
 }
 
 impl App {
