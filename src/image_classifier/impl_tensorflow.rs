@@ -2,14 +2,14 @@ use crate::image_classifier::interface::{Classification, ImageClassifier};
 use image::{DynamicImage, ImageBuffer};
 use tflite::{FlatBufferModel, InterpreterBuilder};
 
-pub struct TensorFlowClassifier {
+pub struct ImageClassifierTensorflow {
     interpreter: tflite::Interpreter,
     logger: Box<dyn crate::logger::interface::Logger>,
     last_process_time: std::time::Instant,
     min_process_interval: std::time::Duration,
 }
 
-impl TensorFlowClassifier {
+impl ImageClassifierTensorflow {
     pub fn new(
         model_path: &str,
         logger: Box<dyn crate::logger::interface::Logger>,
@@ -45,7 +45,7 @@ impl TensorFlowClassifier {
     }
 }
 
-impl ImageClassifier for TensorFlowClassifier {
+impl ImageClassifier for ImageClassifierTensorflow {
     fn classify(&self, image: &[u8]) -> Result<Vec<Classification>, Box<dyn std::error::Error>> {
         // Check if enough time has passed since last processing
         let now = std::time::Instant::now();
