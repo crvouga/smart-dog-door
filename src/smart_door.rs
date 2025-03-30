@@ -37,10 +37,10 @@ pub enum State {
     DevicesInitializing {
         device_states: DeviceStates,
     },
-    CapturingFrames {
+    AnalyzingFramesCapture {
         door_state: DoorState,
     },
-    ClassifyingFrames {
+    AnalyzingFramesClassifying {
         door_state: DoorState,
     },
     ControllingDoor {
@@ -55,11 +55,13 @@ pub enum State {
         door_state: DoorState,
         message: String,
         message_time: Instant,
+        last_classification: Instant,
     },
-    UnlockGracePeriod {
+    UnlockedGracePeriod {
         door_state: DoorState,
+        countdown_start: Instant,
     },
-    LockCountdown {
+    LockingGracePeriod {
         door_state: DoorState,
         countdown_start: Instant,
     },
@@ -73,6 +75,7 @@ pub enum DoorAction {
 
 #[derive(Debug)]
 pub enum Event {
+    Tick(Instant),
     CameraEvent(DeviceCameraEvent),
     CameraStartDone(Result<(), Box<dyn std::error::Error + Send + Sync>>),
     DoorEvent(DeviceDoorEvent),
@@ -84,10 +87,6 @@ pub enum Event {
     FramesClassifyDone(Result<Vec<Vec<Classification>>, Box<dyn std::error::Error + Send + Sync>>),
     FramesCaptureStart,
     FramesCaptureDone(Result<Vec<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>>),
-    DelayStart,
-    DelayDone(Result<(), Box<dyn std::error::Error + Send + Sync>>),
-    GracePeriodDone(Result<(), Box<dyn std::error::Error + Send + Sync>>),
-    CountdownTick,
 }
 
 impl Event {
@@ -108,11 +107,9 @@ pub enum Effect {
     UnlockDoor,
     CaptureFrames,
     ClassifyFrames { frames: Vec<Vec<u8>> },
-    Delay,
-    GracePeriodDelay,
     SubscribeToCameraEvents,
     SubscribeToDoorEvents,
-    StartCountdown,
+    SubscribeTick,
 }
 
 impl Effect {
@@ -168,6 +165,7 @@ impl SmartDoor {
             vec![
                 Effect::SubscribeToDoorEvents,
                 Effect::SubscribeToCameraEvents,
+                Effect::SubscribeTick,
             ],
         )
     }
@@ -190,7 +188,7 @@ impl SmartDoor {
 
                 if matches!(device_states.door, DoorState::Initialized) {
                     (
-                        State::CapturingFrames {
+                        State::AnalyzingFramesCapture {
                             door_state: DoorState::Locked,
                         },
                         vec![Effect::CaptureFrames],
@@ -219,7 +217,7 @@ impl SmartDoor {
 
                 if matches!(device_states.camera, CameraState::Started) {
                     (
-                        State::CapturingFrames {
+                        State::AnalyzingFramesCapture {
                             door_state: DoorState::Locked,
                         },
                         vec![Effect::CaptureFrames],
@@ -230,48 +228,45 @@ impl SmartDoor {
             }
 
             // Main loop
-            (State::CapturingFrames { door_state }, Event::FramesCaptureDone(Ok(frames))) => {
+            (
+                State::AnalyzingFramesCapture { door_state },
+                Event::FramesCaptureDone(Ok(frames)),
+            ) => {
                 if !frames.is_empty() {
                     (
-                        State::ClassifyingFrames { door_state },
+                        State::AnalyzingFramesClassifying { door_state },
                         vec![Effect::ClassifyFrames { frames }],
                     )
                 } else {
                     (
-                        State::CapturingFrames { door_state },
+                        State::AnalyzingFramesCapture { door_state },
                         vec![Effect::CaptureFrames],
                     )
                 }
             }
             (
-                State::ClassifyingFrames { door_state },
+                State::AnalyzingFramesClassifying { door_state },
                 Event::FramesClassifyDone(Ok(classifications)),
             ) => {
                 let should_unlock = classifications.iter().any(|frame_class| {
                     frame_class.iter().any(|c| {
-                        self.config
-                            .classification_unlock_list
-                            .iter()
-                            .any(|unlock_config| {
-                                c.label
-                                    .to_lowercase()
-                                    .contains(&unlock_config.label.to_lowercase())
-                                    && c.confidence >= unlock_config.min_confidence
-                            })
+                        self.config.unlock_list.iter().any(|unlock_config| {
+                            c.label
+                                .to_lowercase()
+                                .contains(&unlock_config.label.to_lowercase())
+                                && c.confidence >= unlock_config.min_confidence
+                        })
                     })
                 });
 
                 let should_lock = classifications.iter().any(|frame_class| {
                     frame_class.iter().any(|c| {
-                        self.config
-                            .classification_lock_list
-                            .iter()
-                            .any(|lock_config| {
-                                c.label
-                                    .to_lowercase()
-                                    .contains(&lock_config.label.to_lowercase())
-                                    && c.confidence >= lock_config.min_confidence
-                            })
+                        self.config.lock_list.iter().any(|lock_config| {
+                            c.label
+                                .to_lowercase()
+                                .contains(&lock_config.label.to_lowercase())
+                                && c.confidence >= lock_config.min_confidence
+                        })
                     })
                 });
 
@@ -289,7 +284,7 @@ impl SmartDoor {
                         format!(
                             "{} detected",
                             self.config
-                                .classification_lock_list
+                                .lock_list
                                 .iter()
                                 .map(|c| c.label.as_str())
                                 .collect::<Vec<_>>()
@@ -299,7 +294,7 @@ impl SmartDoor {
                         format!(
                             "No {} detected",
                             self.config
-                                .classification_unlock_list
+                                .unlock_list
                                 .iter()
                                 .map(|c| c.label.as_str())
                                 .collect::<Vec<_>>()
@@ -309,11 +304,11 @@ impl SmartDoor {
 
                     match door_state {
                         DoorState::Unlocked => (
-                            State::LockCountdown {
+                            State::LockingGracePeriod {
                                 door_state,
                                 countdown_start: Instant::now(),
                             },
-                            vec![Effect::StartCountdown],
+                            vec![],
                         ),
                         _ => (
                             State::Idle {
@@ -321,21 +316,22 @@ impl SmartDoor {
                                 door_state,
                                 message,
                                 message_time: Instant::now(),
+                                last_classification: Instant::now(),
                             },
-                            vec![Effect::Delay],
+                            vec![],
                         ),
                     }
                 }
             }
             (
-                State::LockCountdown {
+                State::LockingGracePeriod {
                     door_state,
                     countdown_start,
                 },
-                Event::CountdownTick,
+                Event::Tick(now),
             ) => {
-                let elapsed = countdown_start.elapsed();
-                if elapsed >= Duration::from_secs(5) {
+                let elapsed = now.duration_since(countdown_start);
+                if elapsed >= self.config.locking_grace_period {
                     (
                         State::ControllingDoor {
                             action: DoorAction::Locking,
@@ -346,11 +342,11 @@ impl SmartDoor {
                     )
                 } else {
                     (
-                        State::LockCountdown {
+                        State::LockingGracePeriod {
                             door_state,
                             countdown_start,
                         },
-                        vec![Effect::StartCountdown],
+                        vec![],
                     )
                 }
             }
@@ -360,16 +356,18 @@ impl SmartDoor {
                     door_state: DoorState::Locked,
                     message: "Door locked".to_string(),
                     message_time: Instant::now(),
+                    last_classification: Instant::now(),
                 },
-                vec![Effect::Delay],
+                vec![],
             ),
             (State::ControllingDoor { action, .. }, Event::DoorUnlockDone(result)) => {
                 match result {
                     Ok(_) => (
-                        State::UnlockGracePeriod {
+                        State::UnlockedGracePeriod {
                             door_state: DoorState::Unlocked,
+                            countdown_start: Instant::now(),
                         },
-                        vec![Effect::GracePeriodDelay],
+                        vec![],
                     ),
                     Err(_) => (
                         State::Idle {
@@ -377,25 +375,52 @@ impl SmartDoor {
                             door_state: DoorState::Locked,
                             message: "Door locked".to_string(),
                             message_time: Instant::now(),
+                            last_classification: Instant::now(),
                         },
-                        vec![Effect::Delay],
+                        vec![],
                     ),
                 }
             }
-            (State::UnlockGracePeriod { door_state }, Event::GracePeriodDone(result)) => {
-                match result {
-                    Ok(_) | Err(_) => (
-                        State::CapturingFrames { door_state },
+            (
+                State::UnlockedGracePeriod {
+                    door_state,
+                    countdown_start,
+                },
+                Event::Tick(now),
+            ) => {
+                let elapsed = now.duration_since(countdown_start);
+                if elapsed >= self.config.unlock_grace_period {
+                    (
+                        State::AnalyzingFramesCapture { door_state },
                         vec![Effect::CaptureFrames],
-                    ),
+                    )
+                } else {
+                    (
+                        State::UnlockedGracePeriod {
+                            door_state,
+                            countdown_start,
+                        },
+                        vec![],
+                    )
                 }
             }
-            (State::Idle { door_state, .. }, Event::DelayDone(result)) => match result {
-                Ok(_) | Err(_) => (
-                    State::CapturingFrames { door_state },
-                    vec![Effect::CaptureFrames],
-                ),
-            },
+            (
+                State::Idle {
+                    door_state,
+                    last_classification,
+                    ..
+                },
+                Event::Tick(now),
+            ) => {
+                if now.duration_since(last_classification) >= self.config.analyze_rate {
+                    (
+                        State::AnalyzingFramesCapture { door_state },
+                        vec![Effect::CaptureFrames],
+                    )
+                } else {
+                    (state, vec![])
+                }
+            }
 
             (_, Event::CameraEvent(DeviceCameraEvent::Disconnected)) => (
                 State::DevicesInitializing {
@@ -405,7 +430,7 @@ impl SmartDoor {
             ),
             (_, Event::DoorEvent(DeviceDoorEvent::Disconnected)) => {
                 let mut effects = vec![];
-                if matches!(state, State::UnlockGracePeriod { .. }) {
+                if matches!(state, State::UnlockedGracePeriod { .. }) {
                     effects.push(Effect::LockDoor);
                 }
                 (
@@ -453,6 +478,12 @@ impl SmartDoor {
                     }
                 }
             }
+            Effect::SubscribeTick => loop {
+                std::thread::sleep(self.config.tick_rate);
+                if event_queue.send(Event::Tick(Instant::now())).is_err() {
+                    continue;
+                }
+            },
             Effect::StartCamera => {
                 let started = self.device_camera.start();
                 let _ = event_queue.send(Event::CameraStartDone(started));
@@ -476,19 +507,6 @@ impl SmartDoor {
                 let _ = event_queue.send(Event::FramesClassifyStart);
                 let classifications = self.image_classifier.classify(frames.clone());
                 let _ = event_queue.send(Event::FramesClassifyDone(classifications));
-            }
-            Effect::Delay => {
-                let _ = event_queue.send(Event::DelayStart);
-                std::thread::sleep(self.config.classification_rate);
-                let _ = event_queue.send(Event::DelayDone(Ok(())));
-            }
-            Effect::GracePeriodDelay => {
-                std::thread::sleep(self.config.unlock_grace_period);
-                let _ = event_queue.send(Event::GracePeriodDone(Ok(())));
-            }
-            Effect::StartCountdown => {
-                std::thread::sleep(Duration::from_secs(1));
-                let _ = event_queue.send(Event::CountdownTick);
             }
         }
     }
@@ -532,7 +550,7 @@ impl SmartDoor {
                     }
                 }
             }
-            State::CapturingFrames { .. } | State::ClassifyingFrames { .. } => {
+            State::AnalyzingFramesCapture { .. } | State::AnalyzingFramesClassifying { .. } => {
                 device_display.write_line(0, "Analyzing...")?;
             }
             State::ControllingDoor {
@@ -553,13 +571,20 @@ impl SmartDoor {
                     }
                 }
             },
-            State::UnlockGracePeriod { .. } => {
-                device_display.write_line(0, "Door unlocked")?;
-            }
-            State::LockCountdown {
+            State::UnlockedGracePeriod {
                 countdown_start, ..
             } => {
-                let remaining = 5 - countdown_start.elapsed().as_secs();
+                let remaining = (self.config.unlock_grace_period.as_secs() as i64
+                    - countdown_start.elapsed().as_secs() as i64)
+                    .max(0);
+                device_display.write_line(0, &format!("Door unlocked ({}s)", remaining))?;
+            }
+            State::LockingGracePeriod {
+                countdown_start, ..
+            } => {
+                let remaining = (self.config.locking_grace_period.as_secs() as i64
+                    - countdown_start.elapsed().as_secs() as i64)
+                    .max(0);
                 device_display.write_line(0, &format!("Locking in {}...", remaining))?;
             }
             State::Idle {
