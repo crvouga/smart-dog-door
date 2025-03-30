@@ -6,6 +6,7 @@ use crate::image_classifier::interface::{Classification, ImageClassifier};
 use crate::library::logger::interface::Logger;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 #[derive(Default, Clone)]
 pub struct DeviceStates {
@@ -17,7 +18,7 @@ pub struct DeviceStates {
 pub enum CameraState {
     #[default]
     Disconnected,
-    Connected,
+    Connected(Instant),
     Started,
 }
 
@@ -25,7 +26,7 @@ pub enum CameraState {
 pub enum DoorState {
     #[default]
     Disconnected,
-    Connected,
+    Connected(Instant),
     Initialized,
     Locked,
     Unlocked,
@@ -45,10 +46,13 @@ pub enum State {
     ControllingDoor {
         action: DoorAction,
         door_state: DoorState,
+        start_time: Instant,
     },
     Idle {
         action: DoorAction,
         door_state: DoorState,
+        message: String,
+        message_time: Instant,
     },
     UnlockGracePeriod {
         door_state: DoorState,
@@ -80,24 +84,11 @@ pub enum Event {
     GracePeriodDone(Result<(), Box<dyn std::error::Error + Send + Sync>>),
 }
 
-// impl std::fmt::Debug for Event {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         match self {
-//             Event::FrameCaptureDone(result) => f
-//                 .debug_tuple("FrameCaptureDone")
-//                 .field(&result.as_ref().map(|_| "Vec<u8>"))
-//                 .finish(),
-//             _ => f.debug_tuple(&format!("{:?}", self)).finish(),
-//         }
-//     }
-// }
-
 #[derive(Clone, Debug)]
 pub enum Effect {
     StartCamera,
-    // StopCamera,
-    LockDogDoor,
-    UnlockDogDoor,
+    LockDoor,
+    UnlockDoor,
     CaptureFrame,
     ClassifyFrame { frame: Vec<u8> },
     Delay,
@@ -106,13 +97,6 @@ pub enum Effect {
     SubscribeToDoorEvents,
     None,
 }
-
-//
-//
-//
-//
-//
-//
 
 #[derive(Clone)]
 pub struct SmartDogDoor {
@@ -168,7 +152,7 @@ impl SmartDogDoor {
                 Event::CameraEvent(DeviceCameraEvent::Connected),
             ) => {
                 let new_states = DeviceStates {
-                    camera: CameraState::Connected,
+                    camera: CameraState::Connected(Instant::now()),
                     door: device_states.door,
                 };
                 (
@@ -199,13 +183,13 @@ impl SmartDogDoor {
             ) => {
                 let new_states = DeviceStates {
                     camera: device_states.camera,
-                    door: DoorState::Connected,
+                    door: DoorState::Connected(Instant::now()),
                 };
                 (
                     State::DevicesInitializing {
                         device_states: new_states,
                     },
-                    vec![Effect::LockDogDoor],
+                    vec![Effect::LockDoor],
                 )
             }
             (State::DevicesInitializing { device_states }, Event::DoorLockDone(Ok(()))) => {
@@ -247,22 +231,32 @@ impl SmartDogDoor {
                         State::ControllingDoor {
                             action: DoorAction::Unlocking,
                             door_state,
+                            start_time: Instant::now(),
                         },
-                        vec![Effect::UnlockDogDoor],
+                        vec![Effect::UnlockDoor],
                     )
                 } else {
+                    let message = if is_cat_in_frame {
+                        "Cat detected".to_string()
+                    } else {
+                        "No dog detected".to_string()
+                    };
+
                     match door_state {
                         DoorState::Unlocked => (
                             State::ControllingDoor {
                                 action: DoorAction::Locking,
                                 door_state,
+                                start_time: Instant::now(),
                             },
-                            vec![Effect::LockDogDoor],
+                            vec![Effect::LockDoor],
                         ),
                         _ => (
                             State::Idle {
                                 action: DoorAction::Locking,
                                 door_state,
+                                message,
+                                message_time: Instant::now(),
                             },
                             vec![Effect::Delay],
                         ),
@@ -273,6 +267,8 @@ impl SmartDogDoor {
                 State::Idle {
                     action,
                     door_state: DoorState::Locked,
+                    message: "Door locked".to_string(),
+                    message_time: Instant::now(),
                 },
                 vec![Effect::Delay],
             ),
@@ -287,7 +283,9 @@ impl SmartDogDoor {
                     Err(_) => (
                         State::Idle {
                             action,
-                            door_state: DoorState::Locked, // Keep as locked if unlock failed
+                            door_state: DoorState::Locked,
+                            message: "Door locked".to_string(),
+                            message_time: Instant::now(),
                         },
                         vec![Effect::Delay],
                     ),
@@ -318,7 +316,7 @@ impl SmartDogDoor {
                 State::DevicesInitializing {
                     device_states: DeviceStates::default(),
                 },
-                vec![Effect::LockDogDoor],
+                vec![Effect::LockDoor],
             ),
 
             // Default case
@@ -375,16 +373,12 @@ impl SmartDogDoor {
                 let started = self.device_camera.start();
                 let _ = event_queue.send(Event::CameraStartDone(started));
             }
-            // Effect::StopCamera => {
-            //     let _ = event_queue.send(Event::CameraStopping);
-            //     let _ = self.device_camera.stop();
-            // }
-            Effect::LockDogDoor => {
+            Effect::LockDoor => {
                 let _ = event_queue.send(Event::DoorLockStart);
                 let locked = self.device_door.lock();
                 let _ = event_queue.send(Event::DoorLockDone(locked));
             }
-            Effect::UnlockDogDoor => {
+            Effect::UnlockDoor => {
                 let _ = event_queue.send(Event::DoorUnlockStart);
                 let unlocked = self.device_door.unlock();
                 let _ = event_queue.send(Event::DoorUnlockDone(unlocked));
@@ -414,83 +408,76 @@ impl SmartDogDoor {
 
     fn render(&self, state: &State) -> Result<(), Arc<dyn std::error::Error + Send + Sync>> {
         let mut device_display = self.device_display.lock().unwrap();
+        device_display.write_line(0, "")?;
+        device_display.write_line(1, "")?;
 
         match state {
             State::DevicesInitializing { device_states } => {
                 match device_states.camera {
                     CameraState::Disconnected => {
-                        device_display.write_line(0, "Camera disconnected")?;
+                        device_display.write_line(0, "Camera connecting...")?;
                     }
-                    CameraState::Connected => {
-                        device_display.write_line(0, "Camera connected")?;
+                    CameraState::Connected(time) => {
+                        if time.elapsed() > Duration::from_secs(2) {
+                            device_display.write_line(0, "Camera connected")?;
+                        } else {
+                            device_display.write_line(0, "Camera connecting...")?;
+                        }
                     }
                     CameraState::Started => {
-                        device_display.write_line(0, "Camera started")?;
+                        device_display.write_line(0, "Camera connected")?;
                     }
                 }
 
                 match device_states.door {
                     DoorState::Disconnected => {
-                        device_display.write_line(1, "Door disconnected")?;
+                        device_display.write_line(1, "Door connecting...")?;
                     }
-                    DoorState::Connected => {
+                    DoorState::Connected(time) => {
+                        if time.elapsed() > Duration::from_secs(2) {
+                            device_display.write_line(1, "Door connected")?;
+                        } else {
+                            device_display.write_line(1, "Door connecting...")?;
+                        }
+                    }
+                    _ => {
                         device_display.write_line(1, "Door connected")?;
                     }
-                    DoorState::Initialized => {
-                        device_display.write_line(1, "Door initialized")?;
+                }
+            }
+            State::CapturingFrame { .. } | State::ClassifyingFrame { .. } => {
+                device_display.write_line(0, "Analyzing...")?;
+            }
+            State::ControllingDoor {
+                action, start_time, ..
+            } => match action {
+                DoorAction::Locking => {
+                    if start_time.elapsed() > Duration::from_secs(2) {
+                        device_display.write_line(0, "Door locked")?;
+                    } else {
+                        device_display.write_line(0, "Locking door...")?;
                     }
-                    DoorState::Locked => {
-                        device_display.write_line(1, "Door locked")?;
+                }
+                DoorAction::Unlocking => {
+                    if start_time.elapsed() > Duration::from_secs(2) {
+                        device_display.write_line(0, "Door unlocked")?;
+                    } else {
+                        device_display.write_line(0, "Unlocking door...")?;
                     }
-                    DoorState::Unlocked => {
-                        device_display.write_line(1, "Door unlocked")?;
-                    }
                 }
+            },
+            State::UnlockGracePeriod { .. } => {
+                device_display.write_line(0, "Door unlocked")?;
             }
-            State::CapturingFrame { door_state } => {
-                device_display.write_line(0, "Capturing frame")?;
-                match door_state {
-                    DoorState::Locked => device_display.write_line(1, "Door locked")?,
-                    DoorState::Unlocked => device_display.write_line(1, "Door unlocked")?,
-                    _ => device_display.write_line(1, "Door state unknown")?,
-                }
-            }
-            State::ClassifyingFrame { door_state } => {
-                device_display.write_line(0, "Classifying frame")?;
-                match door_state {
-                    DoorState::Locked => device_display.write_line(1, "Door locked")?,
-                    DoorState::Unlocked => device_display.write_line(1, "Door unlocked")?,
-                    _ => device_display.write_line(1, "Door state unknown")?,
-                }
-            }
-            State::ControllingDoor { action, door_state } => {
-                match action {
-                    DoorAction::Locking => device_display.write_line(0, "Locking door")?,
-                    DoorAction::Unlocking => device_display.write_line(0, "Unlocking door")?,
-                }
-                match door_state {
-                    DoorState::Locked => device_display.write_line(1, "Door locked")?,
-                    DoorState::Unlocked => device_display.write_line(1, "Door unlocked")?,
-                    _ => device_display.write_line(1, "Door state unknown")?,
-                }
-            }
-            State::UnlockGracePeriod { door_state } => {
-                device_display.write_line(0, "Grace period - keeping unlocked")?;
-                match door_state {
-                    DoorState::Locked => device_display.write_line(1, "Door locked")?,
-                    DoorState::Unlocked => device_display.write_line(1, "Door unlocked")?,
-                    _ => device_display.write_line(1, "Door state unknown")?,
-                }
-            }
-            State::Idle { action, door_state } => {
-                match action {
-                    DoorAction::Locking => device_display.write_line(0, "Idle - Will lock")?,
-                    DoorAction::Unlocking => device_display.write_line(0, "Idle - Will unlock")?,
-                }
-                match door_state {
-                    DoorState::Locked => device_display.write_line(1, "Door locked")?,
-                    DoorState::Unlocked => device_display.write_line(1, "Door unlocked")?,
-                    _ => device_display.write_line(1, "Door state unknown")?,
+            State::Idle {
+                message,
+                message_time,
+                ..
+            } => {
+                if message_time.elapsed() > Duration::from_secs(2) {
+                    device_display.write_line(0, "Analyzing...")?;
+                } else {
+                    device_display.write_line(0, message)?;
                 }
             }
         }
