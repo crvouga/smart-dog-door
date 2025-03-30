@@ -1,7 +1,7 @@
 use crate::config::Config;
-use crate::device_camera::interface::DeviceCamera;
+use crate::device_camera::interface::{DeviceCamera, DeviceCameraEvent};
 use crate::device_display::interface::DeviceDisplay;
-use crate::device_door::interface::DeviceDoor;
+use crate::device_door::interface::{DeviceDoor, DeviceDoorEvent};
 use crate::image_classifier::interface::{Classification, ImageClassifier};
 use crate::library::logger::interface::Logger;
 use std::sync::mpsc::Sender;
@@ -60,14 +60,12 @@ pub enum DoorAction {
 
 #[derive(Debug)]
 pub enum Event {
-    CameraDisconnected,
-    CameraConnected,
+    CameraEvent(DeviceCameraEvent),
     CameraStarting,
     CameraStartDone(Result<(), Box<dyn std::error::Error + Send + Sync>>),
     // CameraStopping,
     // CameraStopDone(Result<(), Box<dyn std::error::Error + Send + Sync>>),
-    DoorDeviceConnected,
-    DoorDeviceDisconnected,
+    DoorEvent(DeviceDoorEvent),
     DoorLockStart,
     DoorLockDone(Result<(), Box<dyn std::error::Error + Send + Sync>>),
     DoorUnlockStart,
@@ -145,7 +143,10 @@ impl SmartDogDoor {
     fn transition(&self, state: State, event: Event) -> (State, Vec<Effect>) {
         match (state.clone(), event) {
             // Device connection handling
-            (State::DevicesInitializing { device_states }, Event::CameraConnected) => {
+            (
+                State::DevicesInitializing { device_states },
+                Event::CameraEvent(DeviceCameraEvent::Connected),
+            ) => {
                 let new_states = DeviceStates {
                     camera: CameraState::Connected,
                     door: device_states.door,
@@ -172,7 +173,10 @@ impl SmartDogDoor {
                 };
                 (state, vec![])
             }
-            (State::DevicesInitializing { device_states }, Event::DoorDeviceConnected) => {
+            (
+                State::DevicesInitializing { device_states },
+                Event::DoorEvent(DeviceDoorEvent::Connected),
+            ) => {
                 let new_states = DeviceStates {
                     camera: device_states.camera,
                     door: DoorState::Connected,
@@ -268,18 +272,17 @@ impl SmartDogDoor {
                 ),
             },
 
-            // Device disconnection handling
-            (_, Event::CameraDisconnected) => (
+            (_, Event::CameraEvent(DeviceCameraEvent::Disconnected)) => (
                 State::DevicesInitializing {
                     device_states: DeviceStates::default(),
                 },
-                vec![], // Wait for camera to reconnect
+                vec![],
             ),
-            (_, Event::DoorDeviceDisconnected) => (
+            (_, Event::DoorEvent(DeviceDoorEvent::Disconnected)) => (
                 State::DevicesInitializing {
                     device_states: DeviceStates::default(),
                 },
-                vec![Effect::LockDogDoor], // Try to lock door when reconnected
+                vec![Effect::LockDogDoor],
             ),
 
             // Default case
@@ -306,12 +309,18 @@ impl SmartDogDoor {
 
         match effect {
             Effect::SubscribeToDoorEvents => {
-                let _ = event_queue.send(Event::DoorDeviceConnected);
-                let _ = event_queue.send(Event::DoorDeviceDisconnected);
+                let events = self.device_door.events();
+                loop {
+                    let event = events.recv().unwrap();
+                    let _ = event_queue.send(Event::DoorEvent(event));
+                }
             }
             Effect::SubscribeToCameraEvents => {
-                let _ = event_queue.send(Event::CameraConnected);
-                let _ = event_queue.send(Event::CameraDisconnected);
+                let events = self.device_camera.events();
+                loop {
+                    let event = events.recv().unwrap();
+                    let _ = event_queue.send(Event::CameraEvent(event));
+                }
             }
             Effect::StartCamera => {
                 let _ = event_queue.send(Event::CameraStarting);
@@ -413,11 +422,13 @@ impl SmartDogDoor {
                     _ => device_display.write_line(1, "Door state unknown")?,
                 }
             }
-            State::Sleeping {
-                action: _,
-                door_state,
-            } => {
-                device_display.write_line(0, "System sleeping")?;
+            State::Sleeping { action, door_state } => {
+                match action {
+                    DoorAction::Locking => device_display.write_line(0, "Sleeping - Will lock")?,
+                    DoorAction::Unlocking => {
+                        device_display.write_line(0, "Sleeping - Will unlock")?
+                    }
+                }
                 match door_state {
                     DoorState::Locked => device_display.write_line(1, "Door locked")?,
                     DoorState::Unlocked => device_display.write_line(1, "Door unlocked")?,

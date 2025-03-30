@@ -37,12 +37,12 @@ impl DeviceCamera for DeviceCameraFake {
         Ok(image)
     }
 
-    fn events(&self) -> std::sync::mpsc::Sender<DeviceCameraEvent> {
-        let (tx, _rx) = std::sync::mpsc::channel();
+    fn events(&self) -> std::sync::mpsc::Receiver<DeviceCameraEvent> {
+        let (tx, rx) = std::sync::mpsc::channel();
         let tx_clone = tx.clone();
         std::thread::spawn(move || {
             tx_clone.send(DeviceCameraEvent::Connected).unwrap();
         });
-        tx
+        rx
     }
 }

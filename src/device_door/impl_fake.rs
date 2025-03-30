@@ -1,4 +1,4 @@
-use crate::device_door::interface::{DeviceDoor, DoorEvent};
+use crate::device_door::interface::{DeviceDoor, DeviceDoorEvent};
 use crate::library::logger::interface::Logger;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -37,14 +37,15 @@ impl DeviceDoor for DeviceDoorFake {
         Ok(!self.locked.load(Ordering::SeqCst))
     }
 
-    fn events(&self) -> std::sync::mpsc::Sender<DoorEvent> {
+    fn events(&self) -> std::sync::mpsc::Receiver<DeviceDoorEvent> {
         let (tx, rx) = std::sync::mpsc::channel();
-        let tx_clone = tx.clone();
+
         std::thread::spawn(move || {
-            while let Ok(event) = rx.recv() {
-                tx_clone.send(event).unwrap();
-            }
+            tx.send(DeviceDoorEvent::Connected).unwrap();
+            std::thread::sleep(std::time::Duration::from_secs(5));
+            // tx.send(DeviceDoorEvent::Disconnected).unwrap();
         });
-        tx
+
+        rx
     }
 }
