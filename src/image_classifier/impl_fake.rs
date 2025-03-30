@@ -1,13 +1,13 @@
 use crate::image_classifier::interface::{Classification, ImageClassifier};
-use crate::logger::interface::Logger;
+use crate::library::logger::interface::Logger;
 use rand::distr::{Distribution, Uniform};
-
+use std::sync::Arc;
 pub struct ImageClassifierFake {
-    logger: Box<dyn Logger>,
+    logger: Arc<dyn Logger + Send + Sync>,
 }
 
 impl ImageClassifierFake {
-    pub fn new(logger: Box<dyn Logger>) -> Self {
+    pub fn new(logger: Arc<dyn Logger + Send + Sync>) -> Self {
         Self {
             logger: logger
                 .with_namespace("image_classifier")
@@ -17,7 +17,10 @@ impl ImageClassifierFake {
 }
 
 impl ImageClassifier for ImageClassifierFake {
-    fn classify(&self, _image: &[u8]) -> Result<Vec<Classification>, Box<dyn std::error::Error>> {
+    fn classify(
+        &self,
+        _image: &[u8],
+    ) -> Result<Vec<Classification>, Box<dyn std::error::Error + Send + Sync>> {
         self.logger.info("Classifying image...")?;
 
         std::thread::sleep(std::time::Duration::from_secs(1));
