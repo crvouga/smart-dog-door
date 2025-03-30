@@ -1,7 +1,10 @@
 use crate::{
-    config::Config, device_camera::impl_fake::DeviceCameraFake,
-    device_display::impl_console::DeviceDisplayConsole, device_door::impl_fake::DeviceDoorFake,
-    image_classifier::impl_fake::ImageClassifierFake, library::logger::impl_console::LoggerConsole,
+    config::Config,
+    device_camera::{impl_fake::DeviceCameraFake, interface::DeviceCamera},
+    device_display::impl_console::DeviceDisplayConsole,
+    device_door::impl_fake::DeviceDoorFake,
+    image_classifier::impl_fake::ImageClassifierFake,
+    library::logger::impl_console::LoggerConsole,
     smart_door::SmartDoor,
 };
 use std::sync::{Arc, Mutex};
@@ -19,7 +22,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let logger = Arc::new(LoggerConsole::new(config.logger_timezone));
 
-    let device_camera = Arc::new(DeviceCameraFake::new(logger.clone()));
+    let device_cameras = vec![
+        Arc::new(DeviceCameraFake::new(logger.clone())) as Arc<dyn DeviceCamera + Send + Sync>,
+        Arc::new(DeviceCameraFake::new(logger.clone())) as Arc<dyn DeviceCamera + Send + Sync>,
+    ];
 
     let device_door = Arc::new(DeviceDoorFake::new(logger.clone()));
 
@@ -30,7 +36,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let smart_door = SmartDoor::new(
         config,
         logger,
-        device_camera,
+        device_cameras,
         device_door,
         device_display,
         image_classifier,

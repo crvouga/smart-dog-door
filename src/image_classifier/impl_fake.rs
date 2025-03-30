@@ -30,7 +30,7 @@ impl ImageClassifier for ImageClassifierFake {
         //     "laptop", "phone", "cup", "bottle", "keyboard", "mouse", "plant", "clock",
         // ];
 
-        let objects = vec!["dog"];
+        let objects = vec!["dog", "cat"];
 
         let mut rng = rand::rng();
 
