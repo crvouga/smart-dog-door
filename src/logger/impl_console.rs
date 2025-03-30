@@ -2,12 +2,12 @@ use crate::logger::interface::Logger;
 use chrono::Utc;
 
 #[derive(Debug, Clone)]
-pub struct ConsoleLogger {
+pub struct LoggerConsole {
     namespace: Option<String>,
     timezone: chrono::FixedOffset,
 }
 
-impl ConsoleLogger {
+impl LoggerConsole {
     pub fn new(timezone: chrono::FixedOffset) -> Self {
         Self {
             namespace: None,
@@ -16,7 +16,7 @@ impl ConsoleLogger {
     }
 }
 
-impl Logger for ConsoleLogger {
+impl Logger for LoggerConsole {
     fn info(&self, message: &str) -> Result<(), Box<dyn std::error::Error>> {
         let utc_now = Utc::now();
         let local_time = utc_now.with_timezone(&self.timezone);
@@ -34,7 +34,7 @@ impl Logger for ConsoleLogger {
             None => namespace.to_string(),
         };
 
-        Box::new(ConsoleLogger {
+        Box::new(LoggerConsole {
             namespace: Some(new_namespace),
             timezone: self.timezone,
         })
