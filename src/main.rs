@@ -1,3 +1,8 @@
+use camera::impl_fake::FakeCamera;
+use dog_door::impl_fake::FakeDogDoor;
+use image_classifier::impl_fake::FakeImageClassifier;
+use logger::impl_console::ConsoleLogger;
+
 mod app;
 mod camera;
 mod config;
@@ -13,14 +18,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         logger_timezone: mountain_standard_time(),
     };
 
-    let logger = logger::impl_console::ConsoleLogger::new(config.logger_timezone);
+    let logger = ConsoleLogger::new(config.logger_timezone);
 
-    let camera = camera::impl_fake::FakeCamera::new(Box::new(logger.clone()));
+    let camera = FakeCamera::new(Box::new(logger.clone()));
 
-    let dog_door = dog_door::impl_fake::FakeDogDoor::new(Box::new(logger.clone()));
+    let dog_door = FakeDogDoor::new(Box::new(logger.clone()));
 
-    let image_classifier =
-        image_classifier::impl_fake::FakeImageClassifier::new(Box::new(logger.clone()));
+    let image_classifier = FakeImageClassifier::new(Box::new(logger.clone()));
 
     let app = app::App::new(
         config,
