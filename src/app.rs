@@ -44,6 +44,18 @@ impl App {
 
         self.logger.info("Dog door locked")?;
 
+        self.run_loop()?;
+
+        self.logger.info("Stopping camera...")?;
+
+        self.camera.stop()?;
+
+        self.logger.info("Camera stopped")?;
+
+        Ok(())
+    }
+
+    fn run_loop(&self) -> Result<(), Box<dyn std::error::Error>> {
         loop {
             self.logger.info("Capturing image...")?;
 
