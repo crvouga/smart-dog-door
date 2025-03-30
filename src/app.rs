@@ -3,6 +3,7 @@ use crate::camera::interface::Camera;
 use crate::dog_door::interface::DogDoor;
 use crate::image_classifier::interface::{Classification, ImageClassifier};
 use crate::logger::interface::Logger;
+
 pub struct App {
     camera: Box<dyn Camera>,
     dog_door: Box<dyn DogDoor>,
@@ -73,21 +74,25 @@ impl App {
             if should_unlock {
                 self.logger
                     .info("Dog is in frame and cat is not, unlocking dog door...")?;
+
                 self.dog_door.unlock()?;
+
                 self.logger.info("Dog door unlocked")?;
             } else {
                 self.logger
                     .info("Dog is not in frame, locking dog door...")?;
+
                 self.dog_door.lock()?;
+
                 self.logger.info("Dog door locked")?;
             }
 
-            let sleep_duration = self.config.check_rate;
-            let start_time = std::time::Instant::now();
-            while start_time.elapsed() < sleep_duration {
-                self.logger.info("Sleeping...")?;
-                std::thread::sleep(std::time::Duration::from_secs(1));
-            }
+            self.logger.info(&format!(
+                "Going to sleep for {} seconds...",
+                self.config.check_rate.as_secs()
+            ))?;
+
+            self.sleep()?;
 
             self.logger.info("Waking up...")?;
         }
@@ -111,5 +116,15 @@ impl App {
             c.label.to_lowercase().contains("cat")
                 && c.confidence >= self.config.classification_min_confidence_cat
         })
+    }
+
+    fn sleep(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let sleep_duration = self.config.check_rate;
+        let start_time = std::time::Instant::now();
+        while start_time.elapsed() < sleep_duration {
+            self.logger.info("Sleeping...")?;
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        }
+        Ok(())
     }
 }
