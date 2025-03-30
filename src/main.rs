@@ -12,7 +12,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         check_rate: std::time::Duration::from_secs(3),
     };
 
-    let timezone = chrono::FixedOffset::west_opt(7 * 3600).unwrap();
+    let timezone = mountain_standard_time();
 
     let logger = logger::impl_console::ConsoleLogger::new("root".to_string(), timezone);
     let camera = camera::impl_fake::FakeCamera::new(Box::new(logger.clone()));
@@ -31,4 +31,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     app.start()?;
 
     Ok(())
+}
+
+fn mountain_standard_time() -> chrono::FixedOffset {
+    chrono::FixedOffset::west_opt(7 * 3600).unwrap()
 }
