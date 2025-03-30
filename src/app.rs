@@ -37,12 +37,30 @@ pub enum DogDoorState {
     Initialized,
 }
 
+#[derive(Clone, Copy)]
+pub enum DoorState {
+    Locked,
+    Unlocked,
+}
+
 pub enum State {
-    DevicesInitializing(DeviceStates), // Initial state, waiting for devices to connect and initialize
-    CapturingFrame,                    // Main loop - capturing frame
-    ClassifyingFrame,                  // Main loop - classifying frame
-    ControllingDoor(DoorAction),       // Main loop - controlling door based on classification
-    Sleeping(DoorAction),              // Main loop - waiting before next iteration
+    DevicesInitializing {
+        device_states: DeviceStates,
+    },
+    CapturingFrame {
+        door_state: DoorState,
+    },
+    ClassifyingFrame {
+        door_state: DoorState,
+    },
+    ControllingDoor {
+        action: DoorAction,
+        door_state: DoorState,
+    },
+    Sleeping {
+        action: DoorAction,
+        door_state: DoorState,
+    },
 }
 
 pub enum DoorAction {
@@ -95,7 +113,9 @@ pub struct Output {
 
 pub fn init(config: &Config) -> Output {
     Output {
-        state: State::DevicesInitializing(DeviceStates::default()),
+        state: State::DevicesInitializing {
+            device_states: DeviceStates::default(),
+        },
         effects: vec![
             Effect::SubscribeToCameraEvents,
             Effect::SubscribeToDoorEvents,
@@ -106,38 +126,66 @@ pub fn init(config: &Config) -> Output {
 pub fn reducer(state: State, event: Event, config: &Config) -> Output {
     match (state, event) {
         // Device connection handling
-        (State::DevicesInitializing(mut device_states), Event::CameraConnected) => {
-            device_states.camera = CameraState::Connected;
+        (State::DevicesInitializing { device_states }, Event::CameraConnected) => {
+            let new_states = DeviceStates {
+                camera: CameraState::Connected,
+                dog_door: device_states.dog_door,
+            };
             Output {
-                state: State::DevicesInitializing(device_states),
+                state: State::DevicesInitializing {
+                    device_states: new_states,
+                },
                 effects: vec![Effect::StartCamera],
             }
         }
-        (State::DevicesInitializing(mut device_states), Event::CameraStartDone(Ok(()))) => {
-            device_states.camera = CameraState::Started;
-            let state = match (device_states.camera, device_states.dog_door) {
-                (CameraState::Started, DogDoorState::Initialized) => State::CapturingFrame,
-                _ => State::DevicesInitializing(device_states),
+        (State::DevicesInitializing { device_states }, Event::CameraStartDone(Ok(()))) => {
+            let new_states = DeviceStates {
+                camera: CameraState::Started,
+                dog_door: device_states.dog_door,
+            };
+            let state = match (new_states.camera, new_states.dog_door) {
+                (CameraState::Started, DogDoorState::Initialized) => State::CapturingFrame {
+                    door_state: DoorState::Locked,
+                },
+                _ => State::DevicesInitializing {
+                    device_states: new_states,
+                },
             };
             Output {
                 state,
                 effects: vec![],
             }
         }
-        (State::DevicesInitializing(mut device_states), Event::DogDoorConnected) => {
-            device_states.dog_door = DogDoorState::Connected;
+        (State::DevicesInitializing { device_states }, Event::DogDoorConnected) => {
+            let new_states = DeviceStates {
+                camera: device_states.camera,
+                dog_door: DogDoorState::Connected,
+            };
             Output {
-                state: State::DevicesInitializing(device_states),
+                state: State::DevicesInitializing {
+                    device_states: new_states,
+                },
                 effects: vec![Effect::LockDogDoor],
             }
         }
-        (State::DevicesInitializing(mut device_states), Event::DogDoorLockDone(Ok(()))) => {
-            device_states.dog_door = DogDoorState::Initialized;
-            let (state, effect) = match (device_states.camera, device_states.dog_door) {
-                (CameraState::Started, DogDoorState::Initialized) => {
-                    (State::CapturingFrame, Effect::CaptureFrame)
-                }
-                _ => (State::DevicesInitializing(device_states), Effect::None),
+        (State::DevicesInitializing { device_states }, Event::DogDoorLockDone(Ok(()))) => {
+            let new_states = DeviceStates {
+                camera: device_states.camera,
+                dog_door: DogDoorState::Initialized,
+            };
+            let (state, effect) = match (new_states.camera, new_states.dog_door) {
+                (CameraState::Started, DogDoorState::Initialized) => (
+                    State::CapturingFrame {
+                        door_state: DoorState::Locked,
+                    },
+                    Effect::CaptureFrame,
+                ),
+                _ => (
+                    State::DevicesInitializing {
+                        device_states: new_states,
+                    },
+                    Effect::None,
+                ),
             };
             Output {
                 state,
@@ -146,43 +194,62 @@ pub fn reducer(state: State, event: Event, config: &Config) -> Output {
         }
 
         // Main loop
-        (State::CapturingFrame, Event::FrameCaptured { frame }) => Output {
-            state: State::ClassifyingFrame,
+        (State::CapturingFrame { door_state }, Event::FrameCaptured { frame }) => Output {
+            state: State::ClassifyingFrame { door_state },
             effects: vec![Effect::ClassifyFrame { frame }],
         },
-        (State::ClassifyingFrame, Event::FrameClassifyDone { classifications }) => {
+        (State::ClassifyingFrame { door_state }, Event::FrameClassifyDone { classifications }) => {
             let is_dog_in_frame = does_probably_have_dog_in_frame(&classifications, config);
             let is_cat_in_frame = does_probably_have_cat_in_frame(&classifications, config);
 
             if is_dog_in_frame && !is_cat_in_frame {
                 Output {
-                    state: State::ControllingDoor(DoorAction::Unlocking),
+                    state: State::ControllingDoor {
+                        action: DoorAction::Unlocking,
+                        door_state,
+                    },
                     effects: vec![Effect::UnlockDogDoor],
                 }
             } else {
                 Output {
-                    state: State::ControllingDoor(DoorAction::Locking),
+                    state: State::ControllingDoor {
+                        action: DoorAction::Locking,
+                        door_state,
+                    },
                     effects: vec![Effect::LockDogDoor],
                 }
             }
         }
-        (State::ControllingDoor(door_action), Event::DogDoorLockDone(_))
-        | (State::ControllingDoor(door_action), Event::DogDoorUnlockDone(_)) => Output {
-            state: State::Sleeping(door_action),
+        (State::ControllingDoor { action, .. }, Event::DogDoorLockDone(_)) => Output {
+            state: State::Sleeping {
+                action,
+                door_state: DoorState::Locked,
+            },
             effects: vec![Effect::Sleep],
         },
-        (State::Sleeping(_), Event::SleepCompleted(_)) => Output {
-            state: State::CapturingFrame,
+        (State::ControllingDoor { action, .. }, Event::DogDoorUnlockDone(_)) => Output {
+            state: State::Sleeping {
+                action,
+                door_state: DoorState::Unlocked,
+            },
+            effects: vec![Effect::Sleep],
+        },
+        (State::Sleeping { door_state, .. }, Event::SleepCompleted(_)) => Output {
+            state: State::CapturingFrame { door_state },
             effects: vec![Effect::CaptureFrame], // Back to start of main loop
         },
 
         // Device disconnection handling
         (_, Event::CameraDisconnected) => Output {
-            state: State::DevicesInitializing(DeviceStates::default()),
+            state: State::DevicesInitializing {
+                device_states: DeviceStates::default(),
+            },
             effects: vec![], // Wait for camera to reconnect
         },
         (_, Event::DogDoorDisconnected) => Output {
-            state: State::DevicesInitializing(DeviceStates::default()),
+            state: State::DevicesInitializing {
+                device_states: DeviceStates::default(),
+            },
             effects: vec![Effect::LockDogDoor], // Try to lock door when reconnected
         },
 
@@ -290,24 +357,34 @@ pub fn render(deps: &Deps, state: State) {
                 DogDoorState::Initialized => {}
             },
         },
-        State::CapturingFrame => println!("Capturing frame..."),
-        State::ClassifyingFrame => println!("Classifying frame..."),
-        State::ControllingDoor(action) => match action {
+        State::CapturingFrame(_) => println!("Capturing frame..."),
+        State::ClassifyingFrame(_) => println!("Classifying frame..."),
+        State::ControllingDoor(action, _) => match action {
             DoorAction::Locking => println!("Locking door..."),
             DoorAction::Unlocking => println!("Unlocking door..."),
         },
-        State::Sleeping(action) => match action {
-            DoorAction::Locking => println!("Sleeping... Door is locked"),
-            DoorAction::Unlocking => println!("Sleeping... Door is unlocked"),
+        State::Sleeping(action, door_state) => match (action, door_state) {
+            (DoorAction::Locking, DoorState::Locked) => println!("Sleeping... Door is locked"),
+            (DoorAction::Unlocking, DoorState::Unlocked) => {
+                println!("Sleeping... Door is unlocked")
+            }
+            _ => println!("Sleeping... Door state mismatch"),
         },
     }
+}
+
+fn spawn_effect_handler(deps: &Deps, effect: Effect, event_sender: Sender<Event>) {
+    let deps = deps.clone();
+    let event_sender = event_sender.clone();
+    std::thread::spawn(move || {
+        run_effect(&deps, effect, event_sender);
+    });
 }
 
 pub fn run(deps: Deps) -> Result<(), Box<dyn std::error::Error>> {
     let (event_sender, event_receiver) = mpsc::channel();
     let mut state = init(&deps.config);
 
-    // Create a single worker thread to process effects sequentially
     let effect_sender = event_sender.clone();
     let effect_deps = deps.clone();
     let effect_thread = std::thread::spawn(move || {
@@ -317,11 +394,7 @@ pub fn run(deps: Deps) -> Result<(), Box<dyn std::error::Error>> {
     });
 
     for effect in state.effects {
-        let effect_deps = deps.clone();
-        let effect_sender = event_sender.clone();
-        std::thread::spawn(move || {
-            run_effect(&effect_deps, effect, effect_sender);
-        });
+        spawn_effect_handler(&deps, effect, event_sender.clone());
     }
 
     loop {
@@ -332,11 +405,7 @@ pub fn run(deps: Deps) -> Result<(), Box<dyn std::error::Error>> {
                 render(&deps, state);
 
                 for effect in output.effects {
-                    let effect_deps = deps.clone();
-                    let effect_sender = event_sender.clone();
-                    std::thread::spawn(move || {
-                        run_effect(&effect_deps, effect, effect_sender);
-                    });
+                    spawn_effect_handler(&deps, effect, event_sender.clone());
                 }
             }
             Err(e) => {
