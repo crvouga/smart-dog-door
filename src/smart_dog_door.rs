@@ -4,7 +4,7 @@ use crate::device_display::interface::DeviceDisplay;
 use crate::device_door::interface::{DeviceDoor, DeviceDoorEvent};
 use crate::image_classifier::interface::{Classification, ImageClassifier};
 use crate::library::logger::interface::Logger;
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
 #[derive(Default, Clone)]
@@ -46,7 +46,7 @@ pub enum State {
         action: DoorAction,
         door_state: DoorState,
     },
-    Sleeping {
+    Idle {
         action: DoorAction,
         door_state: DoorState,
     },
@@ -66,8 +66,6 @@ pub enum Event {
     CameraEvent(DeviceCameraEvent),
     CameraStarting,
     CameraStartDone(Result<(), Box<dyn std::error::Error + Send + Sync>>),
-    // CameraStopping,
-    // CameraStopDone(Result<(), Box<dyn std::error::Error + Send + Sync>>),
     DoorEvent(DeviceDoorEvent),
     DoorLockStart,
     DoorLockDone(Result<(), Box<dyn std::error::Error + Send + Sync>>),
@@ -77,10 +75,22 @@ pub enum Event {
     FrameClassifyDone(Result<Vec<Classification>, Box<dyn std::error::Error + Send + Sync>>),
     FrameCaptureStart,
     FrameCaptureDone(Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>>),
-    SleepStart,
-    SleepDone(Result<(), Box<dyn std::error::Error + Send + Sync>>),
+    DelayStart,
+    DelayDone(Result<(), Box<dyn std::error::Error + Send + Sync>>),
     GracePeriodDone(Result<(), Box<dyn std::error::Error + Send + Sync>>),
 }
+
+// impl std::fmt::Debug for Event {
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         match self {
+//             Event::FrameCaptureDone(result) => f
+//                 .debug_tuple("FrameCaptureDone")
+//                 .field(&result.as_ref().map(|_| "Vec<u8>"))
+//                 .finish(),
+//             _ => f.debug_tuple(&format!("{:?}", self)).finish(),
+//         }
+//     }
+// }
 
 #[derive(Clone, Debug)]
 pub enum Effect {
@@ -90,8 +100,8 @@ pub enum Effect {
     UnlockDogDoor,
     CaptureFrame,
     ClassifyFrame { frame: Vec<u8> },
-    Sleep,
-    GracePeriodSleep,
+    Delay,
+    GracePeriodDelay,
     SubscribeToCameraEvents,
     SubscribeToDoorEvents,
     None,
@@ -112,6 +122,8 @@ pub struct SmartDogDoor {
     device_door: Arc<dyn DeviceDoor + Send + Sync>,
     device_display: Arc<Mutex<dyn DeviceDisplay + Send + Sync>>,
     image_classifier: Arc<dyn ImageClassifier + Send + Sync>,
+    event_sender: Sender<Event>,
+    event_receiver: Arc<Mutex<Receiver<Event>>>,
 }
 
 impl SmartDogDoor {
@@ -123,6 +135,7 @@ impl SmartDogDoor {
         device_display: Arc<Mutex<dyn DeviceDisplay + Send + Sync>>,
         image_classifier: Arc<dyn ImageClassifier + Send + Sync>,
     ) -> Self {
+        let (sender, receiver) = channel();
         Self {
             config,
             logger,
@@ -130,6 +143,8 @@ impl SmartDogDoor {
             device_door,
             device_display,
             image_classifier,
+            event_sender: sender,
+            event_receiver: Arc::new(Mutex::new(receiver)),
         }
     }
 
@@ -238,25 +253,28 @@ impl SmartDogDoor {
                 } else {
                     match door_state {
                         DoorState::Unlocked => (
-                            State::UnlockGracePeriod { door_state },
-                            vec![Effect::GracePeriodSleep],
-                        ),
-                        _ => (
                             State::ControllingDoor {
                                 action: DoorAction::Locking,
                                 door_state,
                             },
                             vec![Effect::LockDogDoor],
                         ),
+                        _ => (
+                            State::Idle {
+                                action: DoorAction::Locking,
+                                door_state,
+                            },
+                            vec![Effect::Delay],
+                        ),
                     }
                 }
             }
             (State::ControllingDoor { action, .. }, Event::DoorLockDone(_)) => (
-                State::Sleeping {
+                State::Idle {
                     action,
                     door_state: DoorState::Locked,
                 },
-                vec![Effect::Sleep],
+                vec![Effect::Delay],
             ),
             (State::ControllingDoor { action, .. }, Event::DoorUnlockDone(result)) => {
                 match result {
@@ -264,14 +282,14 @@ impl SmartDogDoor {
                         State::UnlockGracePeriod {
                             door_state: DoorState::Unlocked,
                         },
-                        vec![Effect::GracePeriodSleep],
+                        vec![Effect::GracePeriodDelay],
                     ),
                     Err(_) => (
-                        State::Sleeping {
+                        State::Idle {
                             action,
                             door_state: DoorState::Locked, // Keep as locked if unlock failed
                         },
-                        vec![Effect::Sleep],
+                        vec![Effect::Delay],
                     ),
                 }
             }
@@ -283,7 +301,7 @@ impl SmartDogDoor {
                     ),
                 }
             }
-            (State::Sleeping { door_state, .. }, Event::SleepDone(result)) => match result {
+            (State::Idle { door_state, .. }, Event::DelayDone(result)) => match result {
                 Ok(_) | Err(_) => (
                     State::CapturingFrame { door_state },
                     vec![Effect::CaptureFrame],
@@ -329,15 +347,27 @@ impl SmartDogDoor {
             Effect::SubscribeToDoorEvents => {
                 let events = self.device_door.events();
                 loop {
-                    let event = events.recv().unwrap();
-                    let _ = event_queue.send(Event::DoorEvent(event));
+                    match events.recv() {
+                        Ok(event) => {
+                            if event_queue.send(Event::DoorEvent(event)).is_err() {
+                                continue;
+                            }
+                        }
+                        Err(_) => continue,
+                    }
                 }
             }
             Effect::SubscribeToCameraEvents => {
                 let events = self.device_camera.events();
                 loop {
-                    let event = events.recv().unwrap();
-                    let _ = event_queue.send(Event::CameraEvent(event));
+                    match events.recv() {
+                        Ok(event) => {
+                            if event_queue.send(Event::CameraEvent(event)).is_err() {
+                                continue;
+                            }
+                        }
+                        Err(_) => continue,
+                    }
                 }
             }
             Effect::StartCamera => {
@@ -369,12 +399,12 @@ impl SmartDogDoor {
                 let classifications = self.image_classifier.classify(&frame);
                 let _ = event_queue.send(Event::FrameClassifyDone(classifications));
             }
-            Effect::Sleep => {
-                let _ = event_queue.send(Event::SleepStart);
+            Effect::Delay => {
+                let _ = event_queue.send(Event::DelayStart);
                 std::thread::sleep(self.config.classification_rate);
-                let _ = event_queue.send(Event::SleepDone(Ok(())));
+                let _ = event_queue.send(Event::DelayDone(Ok(())));
             }
-            Effect::GracePeriodSleep => {
+            Effect::GracePeriodDelay => {
                 std::thread::sleep(self.config.unlock_grace_period);
                 let _ = event_queue.send(Event::GracePeriodDone(Ok(())));
             }
@@ -452,12 +482,10 @@ impl SmartDogDoor {
                     _ => device_display.write_line(1, "Door state unknown")?,
                 }
             }
-            State::Sleeping { action, door_state } => {
+            State::Idle { action, door_state } => {
                 match action {
-                    DoorAction::Locking => device_display.write_line(0, "Sleeping - Will lock")?,
-                    DoorAction::Unlocking => {
-                        device_display.write_line(0, "Sleeping - Will unlock")?
-                    }
+                    DoorAction::Locking => device_display.write_line(0, "Idle - Will lock")?,
+                    DoorAction::Unlocking => device_display.write_line(0, "Idle - Will unlock")?,
                 }
                 match door_state {
                     DoorState::Locked => device_display.write_line(1, "Door locked")?,
@@ -470,9 +498,9 @@ impl SmartDogDoor {
         Ok(())
     }
 
-    fn spawn_effects(&self, effects: Vec<Effect>, event_sender: Sender<Event>) {
+    fn spawn_effects(&self, effects: Vec<Effect>) {
         for effect in effects {
-            let effect_sender = event_sender.clone();
+            let effect_sender = self.event_sender.clone();
             let effect_clone = effect.clone();
             let self_clone = self.clone();
             std::thread::spawn(move || self_clone.run_effect(effect_clone, effect_sender));
@@ -480,13 +508,12 @@ impl SmartDogDoor {
     }
 
     pub fn run(&self) -> Result<(), Arc<dyn std::error::Error + Send + Sync>> {
-        let (event_sender, event_receiver) = std::sync::mpsc::channel();
         let (mut current_state, effects) = self.init();
 
-        self.spawn_effects(effects, event_sender.clone());
+        self.spawn_effects(effects);
 
         loop {
-            match event_receiver.recv() {
+            match self.event_receiver.lock().unwrap().recv() {
                 Ok(event) => {
                     let _ = self.logger.info(&format!("Processing event: {:?}", event));
 
@@ -494,7 +521,7 @@ impl SmartDogDoor {
                     current_state = new_state;
                     self.render(&current_state)?;
 
-                    self.spawn_effects(new_effects, event_sender.clone());
+                    self.spawn_effects(new_effects);
                 }
                 Err(e) => {
                     return Err(Arc::new(e));
