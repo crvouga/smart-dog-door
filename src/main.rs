@@ -18,21 +18,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         logger_timezone: mountain_standard_time(),
     };
 
-    let logger = ConsoleLogger::new(config.logger_timezone);
+    let logger = Box::new(ConsoleLogger::new(config.logger_timezone));
 
-    let camera = FakeCamera::new(Box::new(logger.clone()));
+    let camera = Box::new(FakeCamera::new(logger.clone()));
 
-    let dog_door = FakeDogDoor::new(Box::new(logger.clone()));
+    let dog_door = Box::new(FakeDogDoor::new(logger.clone()));
 
-    let image_classifier = FakeImageClassifier::new(Box::new(logger.clone()));
+    let image_classifier = Box::new(FakeImageClassifier::new(logger.clone()));
 
-    let app = app::App::new(
-        config,
-        Box::new(logger.clone()),
-        Box::new(camera),
-        Box::new(dog_door),
-        Box::new(image_classifier),
-    );
+    let app = app::App::new(config, logger.clone(), camera, dog_door, image_classifier);
 
     app.start()?;
 
