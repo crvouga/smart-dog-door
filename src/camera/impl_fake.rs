@@ -8,7 +8,7 @@ pub struct FakeCamera {
 impl FakeCamera {
     pub fn new(logger: Box<dyn Logger>) -> Self {
         Self {
-            logger: logger.with_namespace("camera.fake"),
+            logger: logger.with_namespace("camera").with_namespace("fake"),
         }
     }
 }

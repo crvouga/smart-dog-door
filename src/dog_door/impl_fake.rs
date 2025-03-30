@@ -11,7 +11,7 @@ impl FakeDogDoor {
     pub fn new(logger: Box<dyn Logger>) -> Self {
         Self {
             locked: AtomicBool::new(false),
-            logger: logger.with_namespace("dog_door.fake"),
+            logger: logger.with_namespace("dog_door").with_namespace("fake"),
         }
     }
 }

@@ -9,15 +9,16 @@ pub struct FakeImageClassifier {
 impl FakeImageClassifier {
     pub fn new(logger: Box<dyn Logger>) -> Self {
         Self {
-            logger: logger.with_namespace("image_classifier.fake"),
+            logger: logger
+                .with_namespace("image_classifier")
+                .with_namespace("fake"),
         }
     }
 }
 
 impl ImageClassifier for FakeImageClassifier {
     fn classify(&self, _image: &[u8]) -> Result<Vec<Classification>, Box<dyn std::error::Error>> {
-        self.logger
-            .info("Classifying image with fake classifier...")?;
+        self.logger.info("Classifying image...")?;
 
         std::thread::sleep(std::time::Duration::from_secs(1));
 
