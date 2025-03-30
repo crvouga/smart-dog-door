@@ -1,5 +1,6 @@
 use app::App;
 use camera::impl_fake::CameraFake;
+use config::Config;
 use dog_door::impl_fake::DogDoorFake;
 use image_classifier::impl_fake::ImageClassifierFake;
 use logger::impl_console::LoggerConsole;
@@ -12,7 +13,7 @@ mod image_classifier;
 mod logger;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let config = config::Config::default();
+    let config = Config::default();
 
     let logger = Box::new(LoggerConsole::new(config.logger_timezone));
 
