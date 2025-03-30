@@ -50,6 +50,9 @@ pub enum State {
         action: DoorAction,
         door_state: DoorState,
     },
+    UnlockGracePeriod {
+        door_state: DoorState,
+    },
 }
 
 #[derive(Clone)]
@@ -76,6 +79,7 @@ pub enum Event {
     FrameCaptureDone(Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>>),
     SleepStart,
     SleepDone(Result<(), Box<dyn std::error::Error + Send + Sync>>),
+    GracePeriodDone(Result<(), Box<dyn std::error::Error + Send + Sync>>),
 }
 
 #[derive(Clone, Debug)]
@@ -87,6 +91,7 @@ pub enum Effect {
     CaptureFrame,
     ClassifyFrame { frame: Vec<u8> },
     Sleep,
+    GracePeriodSleep,
     SubscribeToCameraEvents,
     SubscribeToDoorEvents,
     None,
@@ -231,13 +236,19 @@ impl SmartDogDoor {
                         vec![Effect::UnlockDogDoor],
                     )
                 } else {
-                    (
-                        State::ControllingDoor {
-                            action: DoorAction::Locking,
-                            door_state,
-                        },
-                        vec![Effect::LockDogDoor],
-                    )
+                    match door_state {
+                        DoorState::Unlocked => (
+                            State::UnlockGracePeriod { door_state },
+                            vec![Effect::GracePeriodSleep],
+                        ),
+                        _ => (
+                            State::ControllingDoor {
+                                action: DoorAction::Locking,
+                                door_state,
+                            },
+                            vec![Effect::LockDogDoor],
+                        ),
+                    }
                 }
             }
             (State::ControllingDoor { action, .. }, Event::DoorLockDone(_)) => (
@@ -250,11 +261,10 @@ impl SmartDogDoor {
             (State::ControllingDoor { action, .. }, Event::DoorUnlockDone(result)) => {
                 match result {
                     Ok(_) => (
-                        State::Sleeping {
-                            action,
+                        State::UnlockGracePeriod {
                             door_state: DoorState::Unlocked,
                         },
-                        vec![Effect::Sleep],
+                        vec![Effect::GracePeriodSleep],
                     ),
                     Err(_) => (
                         State::Sleeping {
@@ -262,6 +272,14 @@ impl SmartDogDoor {
                             door_state: DoorState::Locked, // Keep as locked if unlock failed
                         },
                         vec![Effect::Sleep],
+                    ),
+                }
+            }
+            (State::UnlockGracePeriod { door_state }, Event::GracePeriodDone(result)) => {
+                match result {
+                    Ok(_) | Err(_) => (
+                        State::CapturingFrame { door_state },
+                        vec![Effect::CaptureFrame],
                     ),
                 }
             }
@@ -356,6 +374,10 @@ impl SmartDogDoor {
                 std::thread::sleep(self.config.classification_rate);
                 let _ = event_queue.send(Event::SleepDone(Ok(())));
             }
+            Effect::GracePeriodSleep => {
+                std::thread::sleep(self.config.unlock_grace_period);
+                let _ = event_queue.send(Event::GracePeriodDone(Ok(())));
+            }
             Effect::None => {}
         }
     }
@@ -422,6 +444,14 @@ impl SmartDogDoor {
                     _ => device_display.write_line(1, "Door state unknown")?,
                 }
             }
+            State::UnlockGracePeriod { door_state } => {
+                device_display.write_line(0, "Grace period - keeping unlocked")?;
+                match door_state {
+                    DoorState::Locked => device_display.write_line(1, "Door locked")?,
+                    DoorState::Unlocked => device_display.write_line(1, "Door unlocked")?,
+                    _ => device_display.write_line(1, "Door state unknown")?,
+                }
+            }
             State::Sleeping { action, door_state } => {
                 match action {
                     DoorAction::Locking => device_display.write_line(0, "Sleeping - Will lock")?,
@@ -439,43 +469,32 @@ impl SmartDogDoor {
 
         Ok(())
     }
-    pub fn run(&self) -> Result<(), Arc<dyn std::error::Error + Send + Sync>> {
-        let (event_sender, event_receiver) = std::sync::mpsc::channel();
-        let (mut current_state, effects) = self.init();
 
-        // Process initial effects
+    fn spawn_effects(&self, effects: Vec<Effect>, event_sender: Sender<Event>) {
         for effect in effects {
             let effect_sender = event_sender.clone();
             let effect_clone = effect.clone();
             let self_clone = self.clone();
-
-            std::thread::spawn(move || {
-                self_clone.run_effect(effect_clone, effect_sender);
-            });
+            std::thread::spawn(move || self_clone.run_effect(effect_clone, effect_sender));
         }
+    }
 
-        // Main loop
+    pub fn run(&self) -> Result<(), Arc<dyn std::error::Error + Send + Sync>> {
+        let (event_sender, event_receiver) = std::sync::mpsc::channel();
+        let (mut current_state, effects) = self.init();
+
+        self.spawn_effects(effects, event_sender.clone());
+
         loop {
             match event_receiver.recv() {
                 Ok(event) => {
                     let _ = self.logger.info(&format!("Processing event: {:?}", event));
 
                     let (new_state, new_effects) = self.transition(current_state.clone(), event);
-
                     current_state = new_state;
-
                     self.render(&current_state)?;
 
-                    // Process new effects
-                    for effect in new_effects {
-                        let effect_sender = event_sender.clone();
-                        let effect_clone = effect.clone();
-                        let self_clone = self.clone();
-
-                        std::thread::spawn(move || {
-                            self_clone.run_effect(effect_clone, effect_sender);
-                        });
-                    }
+                    self.spawn_effects(new_effects, event_sender.clone());
                 }
                 Err(e) => {
                     return Err(Arc::new(e));
