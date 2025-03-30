@@ -89,7 +89,7 @@ impl App {
 
             self.logger.info(&format!(
                 "Going to sleep for {} seconds...",
-                self.config.check_rate.as_secs()
+                self.config.classification_rate.as_secs()
             ))?;
 
             self.sleep()?;
@@ -119,7 +119,7 @@ impl App {
     }
 
     fn sleep(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let sleep_duration = self.config.check_rate;
+        let sleep_duration = self.config.classification_rate;
         let start_time = std::time::Instant::now();
         while start_time.elapsed() < sleep_duration {
             self.logger.info("Sleeping...")?;

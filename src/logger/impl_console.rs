@@ -3,21 +3,14 @@ use chrono::Utc;
 
 #[derive(Debug, Clone)]
 pub struct ConsoleLogger {
-    namespace: String,
+    namespace: Option<String>,
     timezone: chrono::FixedOffset,
 }
 
 impl ConsoleLogger {
-    pub fn new(namespace: String, timezone: chrono::FixedOffset) -> Self {
+    pub fn new(timezone: chrono::FixedOffset) -> Self {
         Self {
-            namespace,
-            timezone,
-        }
-    }
-
-    pub fn with_timezone(namespace: String, timezone: chrono::FixedOffset) -> Self {
-        Self {
-            namespace,
+            namespace: None,
             timezone,
         }
     }
@@ -28,13 +21,21 @@ impl Logger for ConsoleLogger {
         let utc_now = Utc::now();
         let local_time = utc_now.with_timezone(&self.timezone);
         let formatted = local_time.format("%Y-%m-%d %I:%M:%S%.3f %p");
-        println!("[{}] {}: {}", formatted, self.namespace, message);
+        match &self.namespace {
+            Some(namespace) => println!("[{}] {}: {}", formatted, namespace, message),
+            None => println!("[{}] {}", formatted, message),
+        };
         Ok(())
     }
 
     fn with_namespace(&self, namespace: &str) -> Box<dyn Logger> {
+        let new_namespace = match &self.namespace {
+            Some(current) => format!("{}:{}", current, namespace),
+            None => namespace.to_string(),
+        };
+
         Box::new(ConsoleLogger {
-            namespace: format!("{}:{}", self.namespace, namespace),
+            namespace: Some(new_namespace),
             timezone: self.timezone,
         })
     }
