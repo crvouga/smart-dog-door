@@ -39,10 +39,22 @@ impl DeviceCamera for DeviceCameraFake {
 
     fn events(&self) -> std::sync::mpsc::Receiver<DeviceCameraEvent> {
         let (tx, rx) = std::sync::mpsc::channel();
-        let tx_clone = tx.clone();
+
         std::thread::spawn(move || {
-            tx_clone.send(DeviceCameraEvent::Connected).unwrap();
+            tx.send(DeviceCameraEvent::Connected).unwrap();
+
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(300)); // Sleep for 5 minutes
+
+                // 0.1% chance of disconnecting
+                if rand::random::<f32>() < 0.001 {
+                    tx.send(DeviceCameraEvent::Disconnected).unwrap();
+                    std::thread::sleep(std::time::Duration::from_secs(5));
+                    tx.send(DeviceCameraEvent::Connected).unwrap();
+                }
+            }
         });
+
         rx
     }
 }

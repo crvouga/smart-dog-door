@@ -42,8 +42,17 @@ impl DeviceDoor for DeviceDoorFake {
 
         std::thread::spawn(move || {
             tx.send(DeviceDoorEvent::Connected).unwrap();
-            std::thread::sleep(std::time::Duration::from_secs(5));
-            // tx.send(DeviceDoorEvent::Disconnected).unwrap();
+
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(300)); // Sleep for 5 minutes
+
+                // 1% chance of disconnecting
+                if rand::random::<f32>() < 0.01 {
+                    tx.send(DeviceDoorEvent::Disconnected).unwrap();
+                    std::thread::sleep(std::time::Duration::from_secs(5));
+                    tx.send(DeviceDoorEvent::Connected).unwrap();
+                }
+            }
         });
 
         rx

@@ -25,10 +25,10 @@ impl ImageClassifier for ImageClassifierFake {
 
         std::thread::sleep(std::time::Duration::from_secs(1));
 
-        let objects = vec![
-            "dog", "cat", "person", "car", "chair", "table", "bird", "tree", "bicycle", "book",
-            "laptop", "phone", "cup", "bottle", "keyboard", "mouse", "plant", "clock",
-        ];
+        // let objects = vec![
+        //     "dog", "cat", "person", "car", "chair", "table", "bird", "tree", "bicycle", "book",
+        //     "laptop", "phone", "cup", "bottle", "keyboard", "mouse", "plant", "clock",
+        // ];
 
         let objects = vec!["dog"];
 

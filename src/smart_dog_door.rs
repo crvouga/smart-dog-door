@@ -45,10 +45,12 @@ pub enum State {
     },
     ControllingDoor {
         action: DoorAction,
+        #[allow(dead_code)]
         door_state: DoorState,
         start_time: Instant,
     },
     Idle {
+        #[allow(dead_code)]
         action: DoorAction,
         door_state: DoorState,
         message: String,
