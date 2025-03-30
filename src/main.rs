@@ -1,3 +1,4 @@
+use app::App;
 use camera::impl_fake::FakeCamera;
 use dog_door::impl_fake::FakeDogDoor;
 use image_classifier::impl_fake::FakeImageClassifier;
@@ -26,7 +27,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let image_classifier = Box::new(FakeImageClassifier::new(logger.clone()));
 
-    let app = app::App::new(config, logger.clone(), camera, dog_door, image_classifier);
+    let app = App::new(config, logger.clone(), camera, dog_door, image_classifier);
 
     app.start()?;
 
