@@ -16,13 +16,14 @@ pub struct Deps {
 }
 
 pub enum State {
-    CameraDeviceConnecting,
-    DogDoorDeviceConnecting,
-    CapturingCameraFrame,
-    ClassifyingFrame,
-    UnlockingDogDoor,
-    LockingDogDoor,
-    Sleeping,
+    WaitingForCamera,    // Initial state, waiting for camera to connect
+    StartingCamera,      // Camera connected, trying to start it
+    WaitingForDogDoor,   // Camera started, waiting for dog door
+    InitializingDogDoor, // Dog door connected, locking it initially
+    CapturingFrame,      // Main loop - capturing frame
+    ClassifyingFrame,    // Main loop - classifying frame
+    ControllingDoor,     // Main loop - controlling door based on classification
+    Sleeping,            // Main loop - waiting before next iteration
 }
 
 pub enum Event {
@@ -70,80 +71,79 @@ pub struct Output {
 
 pub fn init(config: &Config) -> Output {
     Output {
-        state: State::CameraDeviceConnecting,
+        state: State::WaitingForCamera,
         effects: vec![
             Effect::SubscribeToCameraEvents,
             Effect::SubscribeToDoorEvents,
-            Effect::StartCamera,
         ],
     }
 }
 
 pub fn reducer(state: State, event: Event, config: &Config) -> Output {
     match (state, event) {
-        (State::CameraDeviceConnecting, Event::CameraConnected) => Output {
-            state: State::CameraDeviceConnecting,
+        // Initial camera setup
+        (State::WaitingForCamera, Event::CameraConnected) => Output {
+            state: State::StartingCamera,
             effects: vec![Effect::StartCamera],
         },
-        (State::CameraDeviceConnecting, Event::CameraDisconnected) => Output {
-            state: State::CameraDeviceConnecting,
-            effects: vec![Effect::StartCamera],
+        (State::StartingCamera, Event::CameraStartDone(Ok(()))) => Output {
+            state: State::WaitingForDogDoor,
+            effects: vec![], // Wait for dog door to connect
         },
-        (State::CameraDeviceConnecting, Event::DogDoorConnected) => Output {
-            state: State::DogDoorDeviceConnecting,
-            effects: vec![Effect::LockDogDoor],
+        (State::StartingCamera, Event::CameraStartDone(Err(_))) => Output {
+            state: State::WaitingForCamera,
+            effects: vec![], // Go back to waiting for camera
         },
-        (State::DogDoorDeviceConnecting, Event::DogDoorDisconnected) => Output {
-            state: State::CameraDeviceConnecting,
-            effects: vec![Effect::StartCamera],
+
+        // Initial dog door setup
+        (State::WaitingForDogDoor, Event::DogDoorConnected) => Output {
+            state: State::InitializingDogDoor,
+            effects: vec![Effect::LockDogDoor], // Always lock first
         },
-        (State::DogDoorDeviceConnecting, Event::DogDoorLockDone) => Output {
-            state: State::CapturingCameraFrame,
-            effects: vec![Effect::CaptureFrame],
+        (State::InitializingDogDoor, Event::DogDoorLockDone(Ok(()))) => Output {
+            state: State::CapturingFrame,
+            effects: vec![Effect::CaptureFrame], // Start main loop
         },
-        (State::CapturingCameraFrame, Event::FrameCaptured { frame }) => Output {
+
+        // Main loop
+        (State::CapturingFrame, Event::FrameCaptured { frame }) => Output {
             state: State::ClassifyingFrame,
             effects: vec![Effect::ClassifyFrame { frame }],
         },
         (State::ClassifyingFrame, Event::FrameClassifyDone { classifications }) => {
             let is_dog_in_frame = does_probably_have_dog_in_frame(&classifications, config);
-
             let is_cat_in_frame = does_probably_have_cat_in_frame(&classifications, config);
 
-            let should_unlock = is_dog_in_frame && !is_cat_in_frame;
-
-            if should_unlock {
-                Output {
-                    state,
-                    effects: vec![Effect::UnlockDogDoor],
-                }
-            } else {
-                Output {
-                    state,
-                    effects: vec![Effect::LockDogDoor],
-                }
+            Output {
+                state: State::ControllingDoor,
+                effects: vec![if is_dog_in_frame && !is_cat_in_frame {
+                    Effect::UnlockDogDoor
+                } else {
+                    Effect::LockDogDoor
+                }],
             }
         }
+        (State::ControllingDoor, Event::DogDoorLockDone(_))
+        | (State::ControllingDoor, Event::DogDoorUnlockDone(_)) => Output {
+            state: State::Sleeping,
+            effects: vec![Effect::Sleep],
+        },
         (State::Sleeping, Event::SleepCompleted(_)) => Output {
-            state: State::CapturingCameraFrame,
-            effects: vec![Effect::CaptureFrame],
+            state: State::CapturingFrame,
+            effects: vec![Effect::CaptureFrame], // Back to start of main loop
         },
-        (State::Sleeping, Event::DogDoorUnlockDone) => Output {
-            state: State::CapturingCameraFrame,
-            effects: vec![Effect::CaptureFrame],
+
+        // Device disconnection handling
+        (_, Event::CameraDisconnected) => Output {
+            state: State::WaitingForCamera,
+            effects: vec![], // Wait for camera to reconnect
         },
-        (State::Sleeping, Event::DogDoorLockDone) => Output {
-            state: State::CapturingCameraFrame,
-            effects: vec![Effect::CaptureFrame],
+        (_, Event::DogDoorDisconnected) => Output {
+            state: State::WaitingForDogDoor,
+            effects: vec![Effect::LockDogDoor], // Try to lock door when reconnected
         },
-        (State::Sleeping, Event::DogDoorConnected) => Output {
-            state: State::DogDoorDeviceConnecting,
-            effects: vec![Effect::LockDogDoor],
-        },
-        (State::Sleeping, Event::DogDoorDisconnected) => Output {
-            state: State::CameraDeviceConnecting,
-            effects: vec![Effect::StartCamera],
-        },
+
+        // Default case
         _ => Output {
             state,
             effects: vec![Effect::None],
@@ -238,41 +238,50 @@ fn run_effect(deps: &Deps, effect: Effect, event_queue: Sender<Event>) {
 
 pub fn render(deps: &Deps, state: State) {
     match state {
-        State::CameraDeviceConnecting => println!("Camera device connecting..."),
-        State::DogDoorDeviceConnecting => println!("Dog door device connecting..."),
-        State::CapturingCameraFrame => println!("Capturing camera frame..."),
+        State::WaitingForCamera => println!("Waiting for camera to connect..."),
+        State::StartingCamera => println!("Starting camera..."),
+        State::WaitingForDogDoor => println!("Waiting for dog door to connect..."),
+        State::InitializingDogDoor => println!("Initializing dog door..."),
+        State::CapturingFrame => println!("Capturing frame..."),
         State::ClassifyingFrame => println!("Classifying frame..."),
-        State::UnlockingDogDoor => println!("Unlocking dog door..."),
-        State::LockingDogDoor => println!("Locking dog door..."),
+        State::ControllingDoor => println!("Controlling door..."),
         State::Sleeping => println!("Sleeping..."),
     }
 }
 
 pub fn run(deps: Deps) -> Result<(), Box<dyn std::error::Error>> {
     let (event_sender, event_receiver) = mpsc::channel();
+    let mut state = init(&deps.config);
 
-    let (mut state, initial_effects) = init(&deps.config);
+    // Create a single worker thread to process effects sequentially
+    let effect_sender = event_sender.clone();
+    let effect_deps = deps.clone();
+    let effect_thread = std::thread::spawn(move || {
+        while let Ok(effect) = effect_receiver.recv() {
+            run_effect(&effect_deps, effect, effect_sender.clone());
+        }
+    });
 
-    for effect in initial_effects {
-        let deps = deps.clone();
-        let event_sender = event_sender.clone();
+    for effect in state.effects {
+        let effect_deps = deps.clone();
+        let effect_sender = event_sender.clone();
         std::thread::spawn(move || {
-            run_effect(&deps, effect, event_sender);
+            run_effect(&effect_deps, effect, effect_sender);
         });
     }
 
     loop {
         match event_receiver.recv() {
             Ok(event) => {
-                let (new_state, effects) = reduce(state, event, &deps.config);
-                state = new_state;
-                render(config, state);
+                let output = reducer(state, event, &deps.config);
+                state = output.state;
+                render(&deps, state);
 
-                for effect in effects {
-                    let deps = deps.clone();
-                    let event_sender = event_sender.clone();
+                for effect in output.effects {
+                    let effect_deps = deps.clone();
+                    let effect_sender = event_sender.clone();
                     std::thread::spawn(move || {
-                        run_effect(&deps, effect, event_sender);
+                        run_effect(&effect_deps, effect, effect_sender);
                     });
                 }
             }
