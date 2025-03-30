@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct StateMachine<TState, TEvent, TEffect, T, R, E>
 where
     T: Fn(TState, TEvent) -> (TState, Vec<TEffect>) + Send + Sync,
@@ -41,7 +41,8 @@ where
 
     pub fn run(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let (event_sender, event_receiver) = std::sync::mpsc::channel();
-        let (state, effects) = self.init.clone();
+        let mut current_state = self.init.0.clone();
+        let effects = self.init.1.clone();
 
         // Process initial effects
         for effect in effects {
@@ -57,8 +58,10 @@ where
         loop {
             match event_receiver.recv() {
                 Ok(event) => {
-                    let (new_state, new_effects) = (self.transition_fn)(state.clone(), event);
-                    (self.render_fn)(&new_state);
+                    let (new_state, new_effects) =
+                        (self.transition_fn)(current_state.clone(), event);
+                    current_state = new_state;
+                    (self.render_fn)(&current_state);
 
                     // Process new effects
                     for effect in new_effects {

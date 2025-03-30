@@ -4,14 +4,13 @@ use crate::device_display::interface::DeviceDisplay;
 use crate::device_dog_door::interface::DeviceDogDoor;
 use crate::image_classifier::interface::{Classification, ImageClassifier};
 use crate::library::logger::interface::Logger;
-use crate::library::state_machine::StateMachine;
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
 
 #[derive(Default, Clone)]
 pub struct DeviceStates {
     camera: CameraState,
-    dog_door: DogDoorState,
+    door: DoorState,
 }
 
 #[derive(Default, Clone)]
@@ -23,15 +22,11 @@ pub enum CameraState {
 }
 
 #[derive(Default, Clone)]
-pub enum DogDoorState {
+pub enum DoorState {
     #[default]
     Disconnected,
     Connected,
     Initialized,
-}
-
-#[derive(Clone, Copy)]
-pub enum DoorState {
     Locked,
     Unlocked,
 }
@@ -63,6 +58,7 @@ pub enum DoorAction {
     Unlocking,
 }
 
+#[derive(Debug)]
 pub enum Event {
     CameraDisconnected,
     CameraConnected,
@@ -70,22 +66,18 @@ pub enum Event {
     CameraStartDone(Result<(), Box<dyn std::error::Error + Send + Sync>>),
     CameraStopping,
     CameraStopDone(Result<(), Box<dyn std::error::Error + Send + Sync>>),
-    DogDoorConnected,
-    DogDoorDisconnected,
-    DogDoorLocking,
-    DogDoorLockDone(Result<(), Box<dyn std::error::Error + Send + Sync>>),
-    DogDoorUnlocking,
-    DogDoorUnlockDone(Result<(), Box<dyn std::error::Error + Send + Sync>>),
-    FrameClassifying,
-    FrameClassifyDone {
-        classifications: Vec<Classification>,
-    },
-    FrameCapturing,
-    FrameCaptured {
-        frame: Vec<u8>,
-    },
-    Sleeping,
-    SleepCompleted(Result<(), Box<dyn std::error::Error + Send + Sync>>),
+    DoorDeviceConnected,
+    DoorDeviceDisconnected,
+    DoorLockStart,
+    DoorLockDone(Result<(), Box<dyn std::error::Error + Send + Sync>>),
+    DoorUnlockStart,
+    DoorUnlockDone(Result<(), Box<dyn std::error::Error + Send + Sync>>),
+    FrameClassifyStart,
+    FrameClassifyDone(Result<Vec<Classification>, Box<dyn std::error::Error + Send + Sync>>),
+    FrameCaptureStart,
+    FrameCaptureDone(Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>>),
+    SleepStart,
+    SleepDone(Result<(), Box<dyn std::error::Error + Send + Sync>>),
 }
 
 #[derive(Clone)]
@@ -156,7 +148,7 @@ impl SmartDogDoor {
             (State::DevicesInitializing { device_states }, Event::CameraConnected) => {
                 let new_states = DeviceStates {
                     camera: CameraState::Connected,
-                    dog_door: device_states.dog_door,
+                    door: device_states.door,
                 };
                 (
                     State::DevicesInitializing {
@@ -168,10 +160,10 @@ impl SmartDogDoor {
             (State::DevicesInitializing { device_states }, Event::CameraStartDone(Ok(()))) => {
                 let new_states = DeviceStates {
                     camera: CameraState::Started,
-                    dog_door: device_states.dog_door,
+                    door: device_states.door,
                 };
-                let state = match (new_states.camera.clone(), new_states.dog_door.clone()) {
-                    (CameraState::Started, DogDoorState::Initialized) => State::CapturingFrame {
+                let state = match (new_states.camera.clone(), new_states.door.clone()) {
+                    (CameraState::Started, DoorState::Initialized) => State::CapturingFrame {
                         door_state: DoorState::Locked,
                     },
                     _ => State::DevicesInitializing {
@@ -180,10 +172,10 @@ impl SmartDogDoor {
                 };
                 (state, vec![])
             }
-            (State::DevicesInitializing { device_states }, Event::DogDoorConnected) => {
+            (State::DevicesInitializing { device_states }, Event::DoorDeviceConnected) => {
                 let new_states = DeviceStates {
                     camera: device_states.camera,
-                    dog_door: DogDoorState::Connected,
+                    door: DoorState::Connected,
                 };
                 (
                     State::DevicesInitializing {
@@ -192,14 +184,13 @@ impl SmartDogDoor {
                     vec![Effect::LockDogDoor],
                 )
             }
-            (State::DevicesInitializing { device_states }, Event::DogDoorLockDone(Ok(()))) => {
+            (State::DevicesInitializing { device_states }, Event::DoorLockDone(Ok(()))) => {
                 let new_states = DeviceStates {
                     camera: device_states.camera,
-                    dog_door: DogDoorState::Initialized,
+                    door: DoorState::Initialized,
                 };
-                let (state, effect) = match (new_states.camera.clone(), new_states.dog_door.clone())
-                {
-                    (CameraState::Started, DogDoorState::Initialized) => (
+                let (state, effect) = match (new_states.camera.clone(), new_states.door.clone()) {
+                    (CameraState::Started, DoorState::Initialized) => (
                         State::CapturingFrame {
                             door_state: DoorState::Locked,
                         },
@@ -216,13 +207,13 @@ impl SmartDogDoor {
             }
 
             // Main loop
-            (State::CapturingFrame { door_state }, Event::FrameCaptured { frame }) => (
+            (State::CapturingFrame { door_state }, Event::FrameCaptureDone(Ok(frame))) => (
                 State::ClassifyingFrame { door_state },
                 vec![Effect::ClassifyFrame { frame }],
             ),
             (
                 State::ClassifyingFrame { door_state },
-                Event::FrameClassifyDone { classifications },
+                Event::FrameClassifyDone(Ok(classifications)),
             ) => {
                 let is_dog_in_frame = self.does_probably_have_dog_in_frame(&classifications);
                 let is_cat_in_frame = self.does_probably_have_cat_in_frame(&classifications);
@@ -245,21 +236,21 @@ impl SmartDogDoor {
                     )
                 }
             }
-            (State::ControllingDoor { action, .. }, Event::DogDoorLockDone(_)) => (
+            (State::ControllingDoor { action, .. }, Event::DoorLockDone(_)) => (
                 State::Sleeping {
                     action,
                     door_state: DoorState::Locked,
                 },
                 vec![Effect::Sleep],
             ),
-            (State::ControllingDoor { action, .. }, Event::DogDoorUnlockDone(_)) => (
+            (State::ControllingDoor { action, .. }, Event::DoorUnlockDone(_)) => (
                 State::Sleeping {
                     action,
                     door_state: DoorState::Unlocked,
                 },
                 vec![Effect::Sleep],
             ),
-            (State::Sleeping { door_state, .. }, Event::SleepCompleted(_)) => (
+            (State::Sleeping { door_state, .. }, Event::SleepDone(_)) => (
                 State::CapturingFrame { door_state },
                 vec![Effect::CaptureFrame], // Back to start of main loop
             ),
@@ -271,7 +262,7 @@ impl SmartDogDoor {
                 },
                 vec![], // Wait for camera to reconnect
             ),
-            (_, Event::DogDoorDisconnected) => (
+            (_, Event::DoorDeviceDisconnected) => (
                 State::DevicesInitializing {
                     device_states: DeviceStates::default(),
                 },
@@ -300,8 +291,8 @@ impl SmartDogDoor {
     fn run_effect(&self, effect: Effect, event_queue: Sender<Event>) {
         match effect {
             Effect::SubscribeToDoorEvents => {
-                let _ = event_queue.send(Event::DogDoorConnected);
-                let _ = event_queue.send(Event::DogDoorDisconnected);
+                let _ = event_queue.send(Event::DoorDeviceConnected);
+                let _ = event_queue.send(Event::DoorDeviceDisconnected);
             }
             Effect::SubscribeToCameraEvents => {
                 let _ = event_queue.send(Event::CameraConnected);
@@ -317,31 +308,29 @@ impl SmartDogDoor {
                 let _ = self.device_camera.stop();
             }
             Effect::LockDogDoor => {
-                let _ = event_queue.send(Event::DogDoorLocking);
+                let _ = event_queue.send(Event::DoorLockStart);
                 let locked = self.device_dog_door.lock();
-                let _ = event_queue.send(Event::DogDoorLockDone(locked));
+                let _ = event_queue.send(Event::DoorLockDone(locked));
             }
             Effect::UnlockDogDoor => {
-                let _ = event_queue.send(Event::DogDoorUnlocking);
+                let _ = event_queue.send(Event::DoorUnlockStart);
                 let unlocked = self.device_dog_door.unlock();
-                let _ = event_queue.send(Event::DogDoorUnlockDone(unlocked));
+                let _ = event_queue.send(Event::DoorUnlockDone(unlocked));
             }
             Effect::CaptureFrame => {
-                let _ = event_queue.send(Event::FrameCapturing);
-                if let Ok(frame) = self.device_camera.capture_frame() {
-                    let _ = event_queue.send(Event::FrameCaptured { frame });
-                }
+                let _ = event_queue.send(Event::FrameCaptureStart);
+                let frame = self.device_camera.capture_frame();
+                let _ = event_queue.send(Event::FrameCaptureDone(frame));
             }
             Effect::ClassifyFrame { frame } => {
-                let _ = event_queue.send(Event::FrameClassifying);
-                if let Ok(classifications) = self.image_classifier.classify(&frame) {
-                    let _ = event_queue.send(Event::FrameClassifyDone { classifications });
-                }
+                let _ = event_queue.send(Event::FrameClassifyStart);
+                let classifications = self.image_classifier.classify(&frame);
+                let _ = event_queue.send(Event::FrameClassifyDone(classifications));
             }
             Effect::Sleep => {
-                let _ = event_queue.send(Event::Sleeping);
+                let _ = event_queue.send(Event::SleepStart);
                 std::thread::sleep(std::time::Duration::from_secs(1));
-                let _ = event_queue.send(Event::SleepCompleted(Ok(())));
+                let _ = event_queue.send(Event::SleepDone(Ok(())));
             }
             Effect::None => {}
         }
@@ -352,12 +341,13 @@ impl SmartDogDoor {
             State::DevicesInitializing { device_states } => match device_states.camera {
                 CameraState::Disconnected => println!("Display: Waiting for camera to connect..."),
                 CameraState::Connected => println!("Display: Camera connected"),
-                CameraState::Started => match device_states.dog_door {
-                    DogDoorState::Disconnected => {
+                CameraState::Started => match device_states.door {
+                    DoorState::Disconnected => {
                         println!("Display: Waiting for dog door to connect...")
                     }
-                    DogDoorState::Connected => println!("Display: Initializing dog door..."),
-                    DogDoorState::Initialized => {}
+                    DoorState::Connected => println!("Display: Initializing dog door..."),
+                    DoorState::Initialized => {}
+                    _ => {}
                 },
             },
             State::CapturingFrame { .. } => println!("Display: Capturing frame..."),
@@ -378,20 +368,43 @@ impl SmartDogDoor {
         }
     }
     pub fn run(&self) -> Result<(), Arc<dyn std::error::Error + Send + Sync>> {
-        let init = self.init();
-        let clone1 = self.clone();
-        let clone2 = self.clone();
-        let clone3 = self.clone();
+        let (event_sender, event_receiver) = std::sync::mpsc::channel();
+        let (mut current_state, effects) = self.init();
 
-        let state_machine = StateMachine::new(
-            init,
-            move |state, event| clone1.transition(state, event),
-            move |state| clone2.render(state),
-            move |effect, sender| clone3.run_effect(effect, sender),
-        );
+        // Process initial effects
+        for effect in effects {
+            let effect_sender = event_sender.clone();
+            let effect_clone = effect.clone();
+            let self_clone = self.clone();
+            std::thread::spawn(move || {
+                self_clone.run_effect(effect_clone, effect_sender);
+            });
+        }
 
-        state_machine.run()?;
+        // Main loop
+        loop {
+            match event_receiver.recv() {
+                Ok(event) => {
+                    println!("Processing event: {:?}", event);
+                    let (new_state, new_effects) = self.transition(current_state.clone(), event);
+                    current_state = new_state;
+                    self.render(&current_state);
 
-        Ok(())
+                    // Process new effects
+                    for effect in new_effects {
+                        let effect_sender = event_sender.clone();
+                        let effect_clone = effect.clone();
+                        let self_clone = self.clone();
+
+                        std::thread::spawn(move || {
+                            self_clone.run_effect(effect_clone, effect_sender);
+                        });
+                    }
+                }
+                Err(e) => {
+                    return Err(Arc::new(e));
+                }
+            }
+        }
     }
 }
