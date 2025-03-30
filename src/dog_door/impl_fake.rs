@@ -32,4 +32,8 @@ impl DogDoor for FakeDogDoor {
         self.logger.info("Dog door unlocked")?;
         Ok(())
     }
+
+    fn is_unlocked(&self) -> Result<bool, Box<dyn std::error::Error>> {
+        Ok(self.locked.load(Ordering::SeqCst))
+    }
 }
