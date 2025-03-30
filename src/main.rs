@@ -1,14 +1,16 @@
 use app::App;
-use camera::impl_fake::CameraFake;
 use config::Config;
-use dog_door::impl_fake::DogDoorFake;
+use device_camera::impl_fake::DeviceCameraFake;
+use device_dog_door::impl_fake::DeviceDogDoorFake;
 use image_classifier::impl_fake::ImageClassifierFake;
 use logger::impl_console::LoggerConsole;
 
 mod app;
-mod camera;
+mod app;
 mod config;
-mod dog_door;
+mod device_camera;
+mod device_display;
+mod device_dog_door;
 mod image_classifier;
 mod logger;
 
@@ -17,9 +19,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let logger = Box::new(LoggerConsole::new(config.logger_timezone));
 
-    let camera = Box::new(CameraFake::new(logger.clone()));
+    let camera = Box::new(DeviceCameraFake::new(logger.clone()));
 
-    let dog_door = Box::new(DogDoorFake::new(logger.clone()));
+    let dog_door = Box::new(DeviceDogDoorFake::new(logger.clone()));
 
     let image_classifier = Box::new(ImageClassifierFake::new(logger.clone()));
 

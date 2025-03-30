@@ -1,13 +1,13 @@
-use crate::dog_door::interface::DogDoor;
+use crate::device_dog_door::interface::DeviceDogDoor;
 use crate::logger::interface::Logger;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-pub struct DogDoorFake {
+pub struct DeviceDogDoorFake {
     locked: AtomicBool,
     logger: Box<dyn Logger>,
 }
 
-impl DogDoorFake {
+impl DeviceDogDoorFake {
     pub fn new(logger: Box<dyn Logger>) -> Self {
         Self {
             locked: AtomicBool::new(false),
@@ -16,7 +16,7 @@ impl DogDoorFake {
     }
 }
 
-impl DogDoor for DogDoorFake {
+impl DeviceDogDoor for DeviceDogDoorFake {
     fn lock(&self) -> Result<(), Box<dyn std::error::Error>> {
         self.logger.info("Locking dog door...")?;
         self.locked.store(true, Ordering::SeqCst);
@@ -35,5 +35,15 @@ impl DogDoor for DogDoorFake {
 
     fn is_unlocked(&self) -> Result<bool, Box<dyn std::error::Error>> {
         Ok(self.locked.load(Ordering::SeqCst))
+    }
+
+    fn events(&self) -> std::sync::mpsc::Sender<DogDoorEvent> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            while let Ok(event) = rx.recv() {
+                tx.send(event).unwrap();
+            }
+        });
+        tx
     }
 }
