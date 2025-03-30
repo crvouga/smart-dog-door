@@ -12,12 +12,7 @@ mod image_classifier;
 mod logger;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let config = config::Config {
-        classification_rate: std::time::Duration::from_secs(3),
-        classification_min_confidence_dog: 0.7,
-        classification_min_confidence_cat: 0.7,
-        logger_timezone: mountain_standard_time(),
-    };
+    let config = config::Config::default();
 
     let logger = Box::new(LoggerConsole::new(config.logger_timezone));
 
@@ -32,8 +27,4 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     app.start()?;
 
     Ok(())
-}
-
-fn mountain_standard_time() -> chrono::FixedOffset {
-    chrono::FixedOffset::west_opt(7 * 3600).unwrap()
 }
