@@ -2,12 +2,12 @@ use crate::dog_door::interface::DogDoor;
 use crate::logger::interface::Logger;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-pub struct FakeDogDoor {
+pub struct DogDoorFake {
     locked: AtomicBool,
     logger: Box<dyn Logger>,
 }
 
-impl FakeDogDoor {
+impl DogDoorFake {
     pub fn new(logger: Box<dyn Logger>) -> Self {
         Self {
             locked: AtomicBool::new(false),
@@ -16,7 +16,7 @@ impl FakeDogDoor {
     }
 }
 
-impl DogDoor for FakeDogDoor {
+impl DogDoor for DogDoorFake {
     fn lock(&self) -> Result<(), Box<dyn std::error::Error>> {
         self.logger.info("Locking dog door...")?;
         self.locked.store(true, Ordering::SeqCst);

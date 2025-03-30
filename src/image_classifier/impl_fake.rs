@@ -2,11 +2,11 @@ use crate::image_classifier::interface::{Classification, ImageClassifier};
 use crate::logger::interface::Logger;
 use rand::distr::{Distribution, Uniform};
 
-pub struct FakeImageClassifier {
+pub struct ImageClassifierFake {
     logger: Box<dyn Logger>,
 }
 
-impl FakeImageClassifier {
+impl ImageClassifierFake {
     pub fn new(logger: Box<dyn Logger>) -> Self {
         Self {
             logger: logger
@@ -16,7 +16,7 @@ impl FakeImageClassifier {
     }
 }
 
-impl ImageClassifier for FakeImageClassifier {
+impl ImageClassifier for ImageClassifierFake {
     fn classify(&self, _image: &[u8]) -> Result<Vec<Classification>, Box<dyn std::error::Error>> {
         self.logger.info("Classifying image...")?;
 

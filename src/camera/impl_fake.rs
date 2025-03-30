@@ -1,11 +1,11 @@
 use crate::camera::interface::Camera;
 use crate::logger::interface::Logger;
 
-pub struct FakeCamera {
+pub struct CameraFake {
     logger: Box<dyn Logger>,
 }
 
-impl FakeCamera {
+impl CameraFake {
     pub fn new(logger: Box<dyn Logger>) -> Self {
         Self {
             logger: logger.with_namespace("camera").with_namespace("fake"),
@@ -13,7 +13,7 @@ impl FakeCamera {
     }
 }
 
-impl Camera for FakeCamera {
+impl Camera for CameraFake {
     fn start(&self) -> Result<(), Box<dyn std::error::Error>> {
         self.logger.info("Starting camera...")?;
         std::thread::sleep(std::time::Duration::from_secs(1));
