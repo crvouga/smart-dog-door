@@ -39,4 +39,11 @@ impl Logger for ConsoleLogger {
             timezone: self.timezone,
         })
     }
+
+    fn clone(&self) -> Box<dyn Logger> {
+        Box::new(ConsoleLogger {
+            namespace: self.namespace.clone(),
+            timezone: self.timezone,
+        })
+    }
 }
