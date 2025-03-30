@@ -35,9 +35,3 @@ pub trait DeviceDisplay: Send + Sync {
         char_map: [u8; 8],
     ) -> Result<(), Box<dyn Error + Send + Sync>>;
 }
-
-#[derive(Debug, Clone)]
-pub enum DeviceDisplayEvent {
-    Connected,
-    Disconnected,
-}
