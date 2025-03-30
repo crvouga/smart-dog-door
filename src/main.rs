@@ -12,7 +12,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         check_rate: std::time::Duration::from_secs(3),
     };
 
-    let logger = logger::impl_console::ConsoleLogger::new("root".to_string());
+    let timezone = chrono::FixedOffset::west_opt(7 * 3600).unwrap();
+
+    let logger = logger::impl_console::ConsoleLogger::new("root".to_string(), timezone);
     let camera = camera::impl_fake::FakeCamera::new(Box::new(logger.clone()));
     let dog_door = dog_door::impl_fake::FakeDogDoor::new(Box::new(logger.clone()));
     let image_classifier =
