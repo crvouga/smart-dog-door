@@ -57,6 +57,10 @@ pub enum State {
     UnlockGracePeriod {
         door_state: DoorState,
     },
+    LockCountdown {
+        door_state: DoorState,
+        countdown_start: Instant,
+    },
 }
 
 #[derive(Clone)]
@@ -82,6 +86,16 @@ pub enum Event {
     DelayStart,
     DelayDone(Result<(), Box<dyn std::error::Error + Send + Sync>>),
     GracePeriodDone(Result<(), Box<dyn std::error::Error + Send + Sync>>),
+    CountdownTick,
+}
+
+impl Event {
+    fn to_display_string(&self) -> String {
+        match self {
+            Event::FrameCaptureDone(Ok(_)) => format!("{:?}", Event::FrameCaptureDone(Ok(vec![]))),
+            event => format!("{:?}", event),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -95,7 +109,18 @@ pub enum Effect {
     GracePeriodDelay,
     SubscribeToCameraEvents,
     SubscribeToDoorEvents,
-    None,
+    StartCountdown,
+}
+
+impl Effect {
+    fn to_display_string(&self) -> String {
+        match self {
+            Effect::ClassifyFrame { .. } => {
+                format!("{:?}", Effect::ClassifyFrame { frame: vec![] })
+            }
+            effect => format!("{:?}", effect),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -167,15 +192,21 @@ impl SmartDogDoor {
                     camera: CameraState::Started,
                     door: device_states.door,
                 };
-                let state = match (new_states.camera.clone(), new_states.door.clone()) {
-                    (CameraState::Started, DoorState::Initialized) => State::CapturingFrame {
-                        door_state: DoorState::Locked,
-                    },
-                    _ => State::DevicesInitializing {
-                        device_states: new_states,
-                    },
-                };
-                (state, vec![])
+
+                match new_states.door {
+                    DoorState::Initialized => (
+                        State::CapturingFrame {
+                            door_state: DoorState::Locked,
+                        },
+                        vec![Effect::CaptureFrame],
+                    ),
+                    _ => (
+                        State::DevicesInitializing {
+                            device_states: new_states,
+                        },
+                        vec![],
+                    ),
+                }
             }
             (
                 State::DevicesInitializing { device_states },
@@ -197,21 +228,21 @@ impl SmartDogDoor {
                     camera: device_states.camera,
                     door: DoorState::Initialized,
                 };
-                let (state, effect) = match (new_states.camera.clone(), new_states.door.clone()) {
-                    (CameraState::Started, DoorState::Initialized) => (
+
+                match new_states.camera {
+                    CameraState::Started => (
                         State::CapturingFrame {
                             door_state: DoorState::Locked,
                         },
-                        Effect::CaptureFrame,
+                        vec![Effect::CaptureFrame],
                     ),
                     _ => (
                         State::DevicesInitializing {
                             device_states: new_states,
                         },
-                        Effect::None,
+                        vec![],
                     ),
-                };
-                (state, vec![effect])
+                }
             }
 
             // Main loop
@@ -244,12 +275,11 @@ impl SmartDogDoor {
 
                     match door_state {
                         DoorState::Unlocked => (
-                            State::ControllingDoor {
-                                action: DoorAction::Locking,
+                            State::LockCountdown {
                                 door_state,
-                                start_time: Instant::now(),
+                                countdown_start: Instant::now(),
                             },
-                            vec![Effect::LockDoor],
+                            vec![Effect::StartCountdown],
                         ),
                         _ => (
                             State::Idle {
@@ -261,6 +291,33 @@ impl SmartDogDoor {
                             vec![Effect::Delay],
                         ),
                     }
+                }
+            }
+            (
+                State::LockCountdown {
+                    door_state,
+                    countdown_start,
+                },
+                Event::CountdownTick,
+            ) => {
+                let elapsed = countdown_start.elapsed();
+                if elapsed >= Duration::from_secs(5) {
+                    (
+                        State::ControllingDoor {
+                            action: DoorAction::Locking,
+                            door_state,
+                            start_time: Instant::now(),
+                        },
+                        vec![Effect::LockDoor],
+                    )
+                } else {
+                    (
+                        State::LockCountdown {
+                            door_state,
+                            countdown_start,
+                        },
+                        vec![Effect::StartCountdown],
+                    )
                 }
             }
             (State::ControllingDoor { action, .. }, Event::DoorLockDone(_)) => (
@@ -312,15 +369,21 @@ impl SmartDogDoor {
                 },
                 vec![],
             ),
-            (_, Event::DoorEvent(DeviceDoorEvent::Disconnected)) => (
-                State::DevicesInitializing {
-                    device_states: DeviceStates::default(),
-                },
-                vec![Effect::LockDoor],
-            ),
+            (_, Event::DoorEvent(DeviceDoorEvent::Disconnected)) => {
+                let mut effects = vec![];
+                if matches!(state, State::UnlockGracePeriod { .. }) {
+                    effects.push(Effect::LockDoor);
+                }
+                (
+                    State::DevicesInitializing {
+                        device_states: DeviceStates::default(),
+                    },
+                    effects,
+                )
+            }
 
             // Default case
-            _ => (state, vec![Effect::None]),
+            _ => (state, vec![]),
         }
     }
 
@@ -339,7 +402,9 @@ impl SmartDogDoor {
     }
 
     fn run_effect(&self, effect: Effect, event_queue: Sender<Event>) {
-        let _ = self.logger.info(&format!("Running effect: {:?}", effect));
+        let _ = self
+            .logger
+            .info(&format!("Running effect: {:?}", effect.to_display_string()));
 
         match effect {
             Effect::SubscribeToDoorEvents => {
@@ -402,7 +467,10 @@ impl SmartDogDoor {
                 std::thread::sleep(self.config.unlock_grace_period);
                 let _ = event_queue.send(Event::GracePeriodDone(Ok(())));
             }
-            Effect::None => {}
+            Effect::StartCountdown => {
+                std::thread::sleep(Duration::from_secs(1));
+                let _ = event_queue.send(Event::CountdownTick);
+            }
         }
     }
 
@@ -469,6 +537,12 @@ impl SmartDogDoor {
             State::UnlockGracePeriod { .. } => {
                 device_display.write_line(0, "Door unlocked")?;
             }
+            State::LockCountdown {
+                countdown_start, ..
+            } => {
+                let remaining = 5 - countdown_start.elapsed().as_secs();
+                device_display.write_line(0, &format!("Locking in {}...", remaining))?;
+            }
             State::Idle {
                 message,
                 message_time,
@@ -502,7 +576,10 @@ impl SmartDogDoor {
         loop {
             match self.event_receiver.lock().unwrap().recv() {
                 Ok(event) => {
-                    let _ = self.logger.info(&format!("Processing event: {:?}", event));
+                    let _ = self.logger.info(&format!(
+                        "Processing event: {:?}",
+                        event.to_display_string()
+                    ));
 
                     let (new_state, new_effects) = self.transition(current_state.clone(), event);
                     current_state = new_state;
