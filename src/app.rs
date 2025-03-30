@@ -44,7 +44,7 @@ impl App {
 
         self.logger.info("Dog door locked")?;
 
-        self.main_loop(self.logger.with_namespace("main_loop"))?;
+        self.run_dog_door_control_loop()?;
 
         self.logger.info("Stopping camera...")?;
 
@@ -55,60 +55,74 @@ impl App {
         Ok(())
     }
 
-    fn main_loop(&self, logger: Box<dyn Logger>) -> Result<(), Box<dyn std::error::Error>> {
+    fn run_dog_door_control_loop(&self) -> Result<(), Box<dyn std::error::Error>> {
         loop {
-            logger.info("Capturing image...")?;
+            self.logger.info("Capturing image...")?;
 
             let image_frame = self.camera.capture_frame()?;
 
-            logger.info("Image captured")?;
+            self.logger.info("Image captured")?;
 
-            logger.info("Classifying image...")?;
+            self.logger.info("Classifying image...")?;
 
             let classifications = self.image_classifier.classify(&image_frame)?;
 
-            logger.info("Image classified")?;
+            self.logger.info("Image classified")?;
 
-            logger.info("Checking if dog is in frame...")?;
+            self.logger.info("Checking if dog is in frame...")?;
 
             let is_dog_in_frame = self.does_probably_have_dog_in_frame(&classifications);
 
-            logger.info(&format!("Dog in frame: {}", is_dog_in_frame))?;
+            self.logger
+                .info(&format!("Dog in frame: {}", is_dog_in_frame))?;
 
             let is_cat_in_frame = self.does_probably_have_cat_in_frame(&classifications);
 
-            logger.info(&format!("Cat in frame: {}", is_cat_in_frame))?;
+            self.logger
+                .info(&format!("Cat in frame: {}", is_cat_in_frame))?;
 
             let should_unlock = is_dog_in_frame && !is_cat_in_frame;
 
             if should_unlock {
-                logger.info("Dog is in frame and cat is not, unlocking dog door...")?;
+                self.logger
+                    .info("Dog is in frame and cat is not, unlocking dog door...")?;
 
                 self.dog_door.unlock()?;
 
-                logger.info("Dog door unlocked")?;
+                self.logger.info("Dog door unlocked")?;
             } else {
-                logger.info("Dog is not in frame, locking dog door...")?;
+                self.logger
+                    .info("Dog is not in frame, locking dog door...")?;
 
                 self.dog_door.lock()?;
 
-                logger.info("Dog door locked")?;
+                self.logger.info("Dog door locked")?;
             }
 
-            logger.info(&format!(
+            self.logger.info(&format!(
                 "Going to sleep for {} seconds...",
                 self.config.classification_rate.as_secs()
             ))?;
 
-            self.sleep(logger.clone())?;
+            self.sleep(self.logger.clone())?;
 
-            logger.info("Waking up...")?;
+            self.logger.info("Waking up...")?;
         }
     }
 
     pub fn stop(&self) -> Result<(), Box<dyn std::error::Error>> {
+        self.logger.info("Stopping camera...")?;
+
         self.camera.stop()?;
-        println!("Stopping app...");
+
+        self.logger.info("Camera stopped")?;
+
+        self.logger.info("Stopping dog door...")?;
+
+        self.dog_door.lock()?;
+
+        self.logger.info("Dog door locked")?;
+
         Ok(())
     }
 
