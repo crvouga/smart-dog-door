@@ -1,5 +1,5 @@
-use crate::app_config::AppConfig;
 use crate::camera::interface::Camera;
+use crate::config::Config;
 use crate::dog_door::interface::DogDoor;
 use crate::image_classifier::interface::{Classification, ImageClassifier};
 use crate::logger::interface::Logger;
@@ -8,13 +8,13 @@ pub struct App {
     camera: Box<dyn Camera>,
     dog_door: Box<dyn DogDoor>,
     image_classifier: Box<dyn ImageClassifier>,
-    config: AppConfig,
+    config: Config,
     logger: Box<dyn Logger>,
 }
 
 impl App {
     pub fn new(
-        config: AppConfig,
+        config: Config,
         logger: Box<dyn Logger>,
         camera: Box<dyn Camera>,
         dog_door: Box<dyn DogDoor>,

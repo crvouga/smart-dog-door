@@ -1,20 +1,19 @@
 mod app;
-mod app_config;
 mod camera;
+mod config;
 mod dog_door;
 mod image_classifier;
 mod logger;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let config = app_config::AppConfig {
+    let config = config::Config {
         classification_rate: std::time::Duration::from_secs(3),
         classification_min_confidence_dog: 0.7,
         classification_min_confidence_cat: 0.7,
+        timezone: mountain_standard_time(),
     };
 
-    let timezone = mountain_standard_time();
-
-    let logger = logger::impl_console::ConsoleLogger::new(timezone);
+    let logger = logger::impl_console::ConsoleLogger::new(config.timezone);
 
     let camera = camera::impl_fake::FakeCamera::new(Box::new(logger.clone()));
 
