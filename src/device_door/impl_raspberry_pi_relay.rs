@@ -1,4 +1,4 @@
-use crate::device_dog_door::interface::DeviceDogDoor;
+use crate::device_dog_door::interface::DeviceDoor;
 use crate::logger::interface::Logger;
 use rppal::gpio::Gpio;
 use std::error::Error;
@@ -47,7 +47,7 @@ impl DogDoorRaspberryPiRelay {
     }
 }
 
-impl DeviceDogDoor for DogDoorRaspberryPiRelay {
+impl DeviceDoor for DogDoorRaspberryPiRelay {
     fn lock(&self) -> Result<(), Box<dyn Error>> {
         if !self.is_locked {
             self.logger.info("Engaging electromagnetic lock")?;
@@ -78,7 +78,7 @@ impl DeviceDogDoor for DogDoorRaspberryPiRelay {
         Ok(!self.is_locked)
     }
 
-    fn events(&self) -> std::sync::mpsc::Sender<DogDoorEvent> {
+    fn events(&self) -> std::sync::mpsc::Sender<DoorEvent> {
         let (event_tx, event_rx) = std::sync::mpsc::channel();
         let (shutdown_tx, shutdown_rx) = std::sync::mpsc::channel();
 
@@ -94,11 +94,11 @@ impl DeviceDogDoor for DogDoorRaspberryPiRelay {
 
                 let value = relay_pin.read();
                 if value == 0 {
-                    if event_tx.send(DogDoorEvent::Connected).is_err() {
+                    if event_tx.send(DoorEvent::Connected).is_err() {
                         break; // Exit if receiver is dropped
                     }
                 } else {
-                    if event_tx.send(DogDoorEvent::Disconnected).is_err() {
+                    if event_tx.send(DoorEvent::Disconnected).is_err() {
                         break; // Exit if receiver is dropped
                     }
                 }

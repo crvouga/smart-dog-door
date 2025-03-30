@@ -1,7 +1,7 @@
 use crate::config::Config;
 use crate::device_camera::interface::DeviceCamera;
 use crate::device_display::interface::DeviceDisplay;
-use crate::device_dog_door::interface::DeviceDogDoor;
+use crate::device_door::interface::DeviceDoor;
 use crate::image_classifier::interface::{Classification, ImageClassifier};
 use crate::library::logger::interface::Logger;
 use std::sync::mpsc::Sender;
@@ -106,7 +106,7 @@ pub struct SmartDogDoor {
     config: Config,
     // logger: Arc<dyn Logger + Send + Sync>,
     device_camera: Arc<dyn DeviceCamera + Send + Sync>,
-    device_dog_door: Arc<dyn DeviceDogDoor + Send + Sync>,
+    device_door: Arc<dyn DeviceDoor + Send + Sync>,
     // device_display: Arc<dyn DeviceDisplay + Send + Sync>,
     image_classifier: Arc<dyn ImageClassifier + Send + Sync>,
 }
@@ -116,7 +116,7 @@ impl SmartDogDoor {
         config: Config,
         _logger: Arc<dyn Logger + Send + Sync>,
         device_camera: Arc<dyn DeviceCamera + Send + Sync>,
-        device_dog_door: Arc<dyn DeviceDogDoor + Send + Sync>,
+        device_door: Arc<dyn DeviceDoor + Send + Sync>,
         _device_display: Arc<dyn DeviceDisplay + Send + Sync>,
         image_classifier: Arc<dyn ImageClassifier + Send + Sync>,
     ) -> Self {
@@ -124,7 +124,7 @@ impl SmartDogDoor {
             config,
             // logger,
             device_camera,
-            device_dog_door,
+            device_door,
             // device_display,
             image_classifier,
         }
@@ -309,12 +309,12 @@ impl SmartDogDoor {
             }
             Effect::LockDogDoor => {
                 let _ = event_queue.send(Event::DoorLockStart);
-                let locked = self.device_dog_door.lock();
+                let locked = self.device_door.lock();
                 let _ = event_queue.send(Event::DoorLockDone(locked));
             }
             Effect::UnlockDogDoor => {
                 let _ = event_queue.send(Event::DoorUnlockStart);
-                let unlocked = self.device_dog_door.unlock();
+                let unlocked = self.device_door.unlock();
                 let _ = event_queue.send(Event::DoorUnlockDone(unlocked));
             }
             Effect::CaptureFrame => {
@@ -329,7 +329,7 @@ impl SmartDogDoor {
             }
             Effect::Sleep => {
                 let _ = event_queue.send(Event::SleepStart);
-                std::thread::sleep(std::time::Duration::from_secs(1));
+                std::thread::sleep(self.config.classification_rate);
                 let _ = event_queue.send(Event::SleepDone(Ok(())));
             }
             Effect::None => {}
