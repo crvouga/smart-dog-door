@@ -126,7 +126,7 @@ impl Effect {
 }
 
 #[derive(Clone)]
-pub struct SmartDogDoor {
+pub struct SmartDoor {
     config: Config,
     logger: Arc<dyn Logger + Send + Sync>,
     device_camera: Arc<dyn DeviceCamera + Send + Sync>,
@@ -137,7 +137,7 @@ pub struct SmartDogDoor {
     event_receiver: Arc<Mutex<Receiver<Event>>>,
 }
 
-impl SmartDogDoor {
+impl SmartDoor {
     pub fn new(
         config: Config,
         logger: Arc<dyn Logger + Send + Sync>,
@@ -256,10 +256,31 @@ impl SmartDogDoor {
                 State::ClassifyingFrame { door_state },
                 Event::FrameClassifyDone(Ok(classifications)),
             ) => {
-                let is_dog_in_frame = self.does_probably_have_dog_in_frame(&classifications);
-                let is_cat_in_frame = self.does_probably_have_cat_in_frame(&classifications);
+                let should_unlock = classifications.iter().any(|c| {
+                    self.config
+                        .classification_unlock_list
+                        .iter()
+                        .any(|unlock_config| {
+                            c.label
+                                .to_lowercase()
+                                .contains(&unlock_config.label.to_lowercase())
+                                && c.confidence >= unlock_config.min_confidence
+                        })
+                });
 
-                if is_dog_in_frame && !is_cat_in_frame {
+                let should_lock = classifications.iter().any(|c| {
+                    self.config
+                        .classification_lock_list
+                        .iter()
+                        .any(|lock_config| {
+                            c.label
+                                .to_lowercase()
+                                .contains(&lock_config.label.to_lowercase())
+                                && c.confidence >= lock_config.min_confidence
+                        })
+                });
+
+                if should_unlock && !should_lock {
                     (
                         State::ControllingDoor {
                             action: DoorAction::Unlocking,
@@ -269,10 +290,26 @@ impl SmartDogDoor {
                         vec![Effect::UnlockDoor],
                     )
                 } else {
-                    let message = if is_cat_in_frame {
-                        "Cat detected".to_string()
+                    let message = if should_lock {
+                        format!(
+                            "{} detected",
+                            self.config
+                                .classification_lock_list
+                                .iter()
+                                .map(|c| c.label.as_str())
+                                .collect::<Vec<_>>()
+                                .join("/")
+                        )
                     } else {
-                        "No dog detected".to_string()
+                        format!(
+                            "No {} detected",
+                            self.config
+                                .classification_unlock_list
+                                .iter()
+                                .map(|c| c.label.as_str())
+                                .collect::<Vec<_>>()
+                                .join("/")
+                        )
                     };
 
                     match door_state {
@@ -387,20 +424,6 @@ impl SmartDogDoor {
             // Default case
             _ => (state, vec![]),
         }
-    }
-
-    fn does_probably_have_dog_in_frame(&self, classifications: &[Classification]) -> bool {
-        classifications.iter().any(|c| {
-            c.label.to_lowercase().contains("dog")
-                && c.confidence >= self.config.classification_min_confidence_dog
-        })
-    }
-
-    fn does_probably_have_cat_in_frame(&self, classifications: &[Classification]) -> bool {
-        classifications.iter().any(|c| {
-            c.label.to_lowercase().contains("cat")
-                && c.confidence >= self.config.classification_min_confidence_cat
-        })
     }
 
     fn run_effect(&self, effect: Effect, event_queue: Sender<Event>) {

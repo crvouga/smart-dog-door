@@ -2,7 +2,7 @@ use crate::{
     config::Config, device_camera::impl_fake::DeviceCameraFake,
     device_display::impl_console::DeviceDisplayConsole, device_door::impl_fake::DeviceDoorFake,
     image_classifier::impl_fake::ImageClassifierFake, library::logger::impl_console::LoggerConsole,
-    smart_dog_door::SmartDogDoor,
+    smart_door::SmartDoor,
 };
 use std::sync::{Arc, Mutex};
 
@@ -12,7 +12,7 @@ mod device_display;
 mod device_door;
 mod image_classifier;
 mod library;
-mod smart_dog_door;
+mod smart_door;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::default();
@@ -27,7 +27,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let image_classifier = Arc::new(ImageClassifierFake::new(logger.clone()));
 
-    let smart_dog_door = SmartDogDoor::new(
+    let smart_door = SmartDoor::new(
         config,
         logger,
         device_camera,
@@ -36,7 +36,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         image_classifier,
     );
 
-    smart_dog_door.run()?;
+    smart_door.run()?;
 
     Ok(())
 }
