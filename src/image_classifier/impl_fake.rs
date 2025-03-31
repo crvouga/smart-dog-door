@@ -1,9 +1,11 @@
 use crate::image_classifier::interface::{Classification, ImageClassifier};
 use crate::library::logger::interface::Logger;
-use rand::distr::{Distribution, Uniform};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+
 pub struct ImageClassifierFake {
     logger: Arc<dyn Logger + Send + Sync>,
+    counter: AtomicUsize,
 }
 
 impl ImageClassifierFake {
@@ -12,6 +14,7 @@ impl ImageClassifierFake {
             logger: logger
                 .with_namespace("image_classifier")
                 .with_namespace("fake"),
+            counter: AtomicUsize::new(0),
         }
     }
 }
@@ -25,22 +28,26 @@ impl ImageClassifier for ImageClassifierFake {
 
         std::thread::sleep(std::time::Duration::from_secs(1));
 
-        // let objects = vec![
-        //     "dog", "cat", "person", "car", "chair", "table", "bird", "tree", "bicycle", "book",
-        //     "laptop", "phone", "cup", "bottle", "keyboard", "mouse", "plant", "clock",
-        // ];
+        let count = self.counter.fetch_add(1, Ordering::SeqCst);
 
-        let objects = vec!["dog", "cat"];
-
-        let mut rng = rand::rng();
-
-        let index_dist = Uniform::new(0, objects.len())?;
-
-        let confidence_dist = Uniform::new(0.0, 1.0)?;
-
-        let classification = Classification {
-            label: objects[index_dist.sample(&mut rng)].to_string(),
-            confidence: confidence_dist.sample(&mut rng),
+        let classification = match count % 4 {
+            0 => Classification {
+                label: "dog".to_string(),
+                confidence: 0.9,
+            },
+            1 => Classification {
+                label: "cat".to_string(),
+                confidence: 0.8,
+            },
+            2 => Classification {
+                label: "dog".to_string(),
+                confidence: 0.3,
+            },
+            3 => Classification {
+                label: "cat".to_string(),
+                confidence: 0.2,
+            },
+            _ => unreachable!(),
         };
 
         let classifications = vec![classification];

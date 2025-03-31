@@ -53,11 +53,9 @@ impl Render {
 
                 // Render door state
                 let door_text = match ready.door {
-                    ModelDoor::LockingGracePeriod { .. } => "locking",
-                    ModelDoor::Locking => "locking",
+                    ModelDoor::Locking { .. } => "locking",
                     ModelDoor::Locked => "locked",
-                    ModelDoor::UnlockingGracePeriod { .. } => "unlocking",
-                    ModelDoor::Unlocking => "unlocking",
+                    ModelDoor::Unlocking { .. } => "unlocking",
                     ModelDoor::Unlocked => "unlocked",
                 };
                 device_display.write_line(1, door_text)?;

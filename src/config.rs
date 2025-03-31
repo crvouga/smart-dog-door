@@ -9,22 +9,22 @@ pub struct ClassificationConfig {
 #[derive(Debug, Clone)]
 pub struct Config {
     pub tick_rate: Duration,
-    pub _analyze_rate: Duration,
+    pub camera_process_rate: Duration,
     pub lock_list: Vec<ClassificationConfig>,
     pub unlock_list: Vec<ClassificationConfig>,
     pub logger_timezone: chrono::FixedOffset,
-    pub unlock_grace_period: Duration,
-    pub locking_grace_period: Duration,
+    pub minimal_duration_unlocking: Duration,
+    pub minimal_duration_locking: Duration,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             tick_rate: std::time::Duration::from_secs(1),
-            _analyze_rate: std::time::Duration::from_secs(1),
+            camera_process_rate: std::time::Duration::from_secs(5),
             logger_timezone: mountain_standard_time(),
-            unlock_grace_period: Duration::from_secs(3),
-            locking_grace_period: Duration::from_secs(3),
+            minimal_duration_unlocking: Duration::from_secs(3),
+            minimal_duration_locking: Duration::from_secs(3),
             lock_list: vec![ClassificationConfig {
                 label: "cat".to_string(),
                 min_confidence: 0.5,

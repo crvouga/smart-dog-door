@@ -327,7 +327,7 @@ pub fn transition(config: &Config, state: State, event: Event) -> (State, Vec<Ef
             let grace_elapsed = now.duration_since(countdown_start);
             let since_last_detection = now.duration_since(last_detection);
 
-            if grace_elapsed >= config.locking_grace_period {
+            if grace_elapsed >= config.minimal_duration_locking {
                 (
                     State::ControllingDoor {
                         action: DoorAction::Locking,
@@ -346,7 +346,7 @@ pub fn transition(config: &Config, state: State, event: Event) -> (State, Vec<Ef
                     vec![Effect::CaptureFrames],
                 )
             } else {
-                let remaining = config.locking_grace_period - grace_elapsed;
+                let remaining = config.minimal_duration_locking - grace_elapsed;
                 (
                     State::LockingGracePeriod {
                         door_state,
@@ -367,7 +367,7 @@ pub fn transition(config: &Config, state: State, event: Event) -> (State, Vec<Ef
             },
             Event::Tick(now),
         ) => {
-            if now.duration_since(countdown_start) >= config.unlock_grace_period {
+            if now.duration_since(countdown_start) >= config.minimal_duration_unlocking {
                 (
                     State::AnalyzingFramesCapture {
                         door_state,
@@ -496,7 +496,7 @@ pub fn transition(config: &Config, state: State, event: Event) -> (State, Vec<Ef
             },
             Event::Tick(now),
         ) => {
-            if now.duration_since(last_activity) >= config._analyze_rate {
+            if now.duration_since(last_activity) >= config.camera_process_rate {
                 (
                     State::AnalyzingFramesCapture {
                         door_state,

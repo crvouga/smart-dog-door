@@ -30,15 +30,6 @@ pub struct ModelConnecting {
     pub door: ModelDeviceConnection,
 }
 
-impl ModelConnecting {
-    pub fn init() -> Self {
-        ModelConnecting {
-            camera: ModelDeviceConnection::default(),
-            door: ModelDeviceConnection::default(),
-        }
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub enum ModelDeviceConnection {
     #[default]
@@ -76,23 +67,15 @@ pub enum ModelCameraState {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ModelDoor {
-    LockingGracePeriod {
-        start_time: Instant,
-        countdown_start: Instant,
-    },
-    Locking,
+    Locking { start_time: Instant },
     Locked,
-    UnlockingGracePeriod {
-        start_time: Instant,
-        countdown_start: Instant,
-    },
-    Unlocking,
+    Unlocking { start_time: Instant },
     Unlocked,
 }
 
 impl Default for ModelDoor {
     fn default() -> Self {
-        ModelDoor::Unlocked
+        ModelDoor::Locked
     }
 }
 
@@ -163,7 +146,10 @@ fn transition_connecting(
     };
 
     if is_all_devices_connected(&model_new) {
-        (Model::Ready(ModelReady::default()), vec![])
+        (
+            Model::Ready(ModelReady::default()),
+            vec![Effect::CaptureFrames],
+        )
     } else {
         (Model::Connecting(model_new), vec![])
     }
@@ -230,49 +216,93 @@ fn transition_ready(config: &Config, model: ModelReady, msg: Msg) -> (Model, Vec
 }
 
 fn transition_ready_main(config: &Config, model: ModelReady, msg: &Msg) -> (Model, Vec<Effect>) {
+    // Handle camera state transition
     let camera_result = transition_ready_camera(config, model.camera.clone(), &msg);
 
+    // Check if detection changed
     let detection_before = model.camera.to_detection(config);
     let detection_after = camera_result.0.to_detection(config);
+    let detection_changed = detection_before != detection_after;
 
-    if detection_before != detection_after {
-        println!("Detection changed: {:?}", detection_after);
-    }
+    // Handle door state based on detection change
+    let (door_state, door_effects) = if detection_changed {
+        transition_door_on_detection_change(model.door, detection_after)
+    } else {
+        transition_door_on_msg(config, model.door, msg)
+    };
 
-    let door_result = transition_ready_door(model.door, &msg);
+    // Get final door state transition
+    let door_result = transition_ready_door(door_state, &msg);
 
+    // Combine results
     let combined = ModelReady {
         camera: camera_result.0,
         door: door_result.0,
     };
 
-    let mut combined_effects = door_result.1;
-    combined_effects.extend(camera_result.1);
+    let mut combined_effects = camera_result.1;
+    combined_effects.extend(door_effects);
+    combined_effects.extend(door_result.1);
 
     (Model::Ready(combined), combined_effects)
 }
 
-fn transition_door_detection_changed(model: ModelDoor, msg: &Msg) -> (ModelDoor, Vec<Effect>) {
-    match (model.clone(), msg) {
+fn transition_door_on_detection_change(
+    door: ModelDoor,
+    detection: Detection,
+) -> (ModelDoor, Vec<Effect>) {
+    match (door, detection) {
+        (ModelDoor::Locked, Detection::Dog) => (
+            ModelDoor::Unlocking {
+                start_time: Instant::now(),
+            },
+            vec![],
+        ),
+        (ModelDoor::Unlocking { .. }, Detection::Cat) => {
+            (ModelDoor::Locked, vec![Effect::LockDoor])
+        }
+        (ModelDoor::Unlocked, Detection::None) | (ModelDoor::Unlocked, Detection::Cat) => (
+            ModelDoor::Locking {
+                start_time: Instant::now(),
+            },
+            vec![],
+        ),
+        (door, _) => (door, vec![]),
+    }
+}
+
+fn transition_door_on_msg(config: &Config, door: ModelDoor, msg: &Msg) -> (ModelDoor, Vec<Effect>) {
+    match (door.clone(), msg) {
+        (ModelDoor::Unlocking { start_time }, Msg::Tick(now)) => {
+            if now.duration_since(start_time) >= config.minimal_duration_unlocking {
+                (ModelDoor::Unlocked, vec![Effect::UnlockDoor])
+            } else {
+                (door, vec![])
+            }
+        }
+        (ModelDoor::Locking { start_time }, Msg::Tick(now)) => {
+            if now.duration_since(start_time) >= config.minimal_duration_locking {
+                (ModelDoor::Locked, vec![Effect::LockDoor])
+            } else {
+                (door, vec![])
+            }
+        }
+        (ModelDoor::Unlocking { .. }, Msg::DoorUnlockDone(Ok(_))) => (ModelDoor::Unlocked, vec![]),
         (ModelDoor::Locking { .. }, Msg::DoorLockDone(Ok(_))) => (ModelDoor::Locked, vec![]),
-        _ => (model, vec![]),
+        _ => (door, vec![]),
     }
 }
 
 fn transition_ready_door(model: ModelDoor, msg: &Msg) -> (ModelDoor, Vec<Effect>) {
     match (model.clone(), msg) {
         (ModelDoor::Locking { .. }, Msg::DoorLockDone(Ok(_))) => (ModelDoor::Locked, vec![]),
-
         (ModelDoor::Unlocking { .. }, Msg::DoorUnlockDone(Ok(_))) => (ModelDoor::Unlocked, vec![]),
-
         (ModelDoor::Locking { .. }, Msg::DoorLockDone(Err(_))) => {
             (ModelDoor::Locked, vec![Effect::LockDoor])
         }
-
         (ModelDoor::Unlocking { .. }, Msg::DoorUnlockDone(Err(_))) => {
             (ModelDoor::Locked, vec![Effect::UnlockDoor])
         }
-
         _ => (model, vec![]),
     }
 }
