@@ -54,13 +54,6 @@ impl SmartDoor {
         }
     }
 
-    pub fn dispatch(&self, event: Event) -> Vec<Effect> {
-        let mut state = self.state.lock().unwrap();
-        let (new_state, effects) = transition(&self.config, state.clone(), event);
-        *state = new_state;
-        effects
-    }
-
     fn spawn_effects(&self, effects: Vec<Effect>) {
         for effect in effects {
             let effect_clone = effect.clone();
@@ -70,10 +63,12 @@ impl SmartDoor {
     }
 
     fn run_loop(&self) -> Result<(), Arc<dyn std::error::Error + Send + Sync>> {
-        let (initial_state, effects) = init();
-        *self.state.lock().unwrap() = initial_state;
+        let (initial_state, initial_effects) = init();
+        *self.state.lock().unwrap() = initial_state.clone();
 
-        self.spawn_effects(effects);
+        self.spawn_effects(initial_effects);
+
+        let mut current_state = initial_state.clone();
 
         loop {
             match self.event_receiver.lock().unwrap().recv() {
@@ -83,7 +78,10 @@ impl SmartDoor {
                         event.to_display_string()
                     ));
 
-                    let effects = self.dispatch(event);
+                    let (new_state, effects) = transition(&self.config, current_state, event);
+                    current_state = new_state.clone();
+                    *self.state.lock().unwrap() = new_state;
+
                     if let Err(e) = self.renderer.render(&self.state.lock().unwrap()) {
                         return Err::<(), Arc<dyn std::error::Error + Send + Sync>>(Arc::new(
                             io::Error::new(io::ErrorKind::Other, e.to_string()),
