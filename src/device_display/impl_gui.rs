@@ -131,4 +131,8 @@ impl DeviceDisplay for DeviceDisplayGui {
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         Ok(())
     }
+
+    fn render(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        Ok(())
+    }
 }

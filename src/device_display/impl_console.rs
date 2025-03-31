@@ -42,6 +42,11 @@ impl DeviceDisplay for DeviceDisplayConsole {
         Ok(())
     }
 
+    fn render(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        self.render_display();
+        Ok(())
+    }
+
     fn write_line(&mut self, line: u8, text: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
         if line >= 2 {
             return Err("Invalid line number".into());
@@ -55,13 +60,12 @@ impl DeviceDisplay for DeviceDisplayConsole {
             self.display_buffer[line as usize][i] = c;
         }
 
-        self.render_display();
         Ok(())
     }
 
     fn set_backlight(&mut self, on: bool) -> Result<(), Box<dyn Error + Send + Sync>> {
         self.backlight_on = on;
-        self.render_display();
+
         Ok(())
     }
 

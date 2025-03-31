@@ -3,7 +3,7 @@ use crate::device_camera::interface::DeviceCamera;
 use crate::device_door::interface::DeviceDoor;
 use crate::image_classifier::interface::ImageClassifier;
 use crate::library::logger::interface::Logger;
-use crate::smart_door::core::{Effect, Event};
+use crate::smart_door::core::{Effect, Msg};
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
 use std::time::Instant;
@@ -15,7 +15,7 @@ pub struct RunEffect {
     device_camera: Arc<dyn DeviceCamera + Send + Sync>,
     device_door: Arc<dyn DeviceDoor + Send + Sync>,
     image_classifier: Arc<dyn ImageClassifier + Send + Sync>,
-    event_sender: Sender<Event>,
+    event_sender: Sender<Msg>,
 }
 
 impl RunEffect {
@@ -25,7 +25,7 @@ impl RunEffect {
         device_camera: Arc<dyn DeviceCamera + Send + Sync>,
         device_door: Arc<dyn DeviceDoor + Send + Sync>,
         image_classifier: Arc<dyn ImageClassifier + Send + Sync>,
-        event_sender: Sender<Event>,
+        event_sender: Sender<Msg>,
     ) -> Self {
         Self {
             config,
@@ -41,12 +41,12 @@ impl RunEffect {
         let _ = self.logger.info(&format!("Running effect: {:?}", effect));
 
         match effect {
-            Effect::SubscribeToDoorEvents => {
+            Effect::SubscribeDoor => {
                 let events = self.device_door.events();
                 loop {
                     match events.recv() {
                         Ok(event) => {
-                            if self.event_sender.send(Event::DoorEvent(event)).is_err() {
+                            if self.event_sender.send(Msg::DoorEvent(event)).is_err() {
                                 continue;
                             }
                         }
@@ -54,12 +54,12 @@ impl RunEffect {
                     }
                 }
             }
-            Effect::SubscribeToCameraEvents => {
+            Effect::SubscribeCamera => {
                 let events = self.device_camera.events();
                 loop {
                     match events.recv() {
                         Ok(event) => {
-                            if self.event_sender.send(Event::CameraEvent(event)).is_err() {
+                            if self.event_sender.send(Msg::CameraEvent(event)).is_err() {
                                 continue;
                             }
                         }
@@ -69,25 +69,21 @@ impl RunEffect {
             }
             Effect::SubscribeTick => loop {
                 std::thread::sleep(self.config.tick_rate);
-                if self.event_sender.send(Event::Tick(Instant::now())).is_err() {
+                if self.event_sender.send(Msg::Tick(Instant::now())).is_err() {
                     continue;
                 }
             },
-            Effect::StartCamera => {
-                let started = self.device_camera.start();
-                let _ = self.event_sender.send(Event::CameraStartDone(started));
-            }
             Effect::LockDoor => {
                 let locked = self.device_door.lock();
-                let _ = self.event_sender.send(Event::DoorLockDone(locked));
+                let _ = self.event_sender.send(Msg::DoorLockDone(locked));
             }
             Effect::UnlockDoor => {
                 let unlocked = self.device_door.unlock();
-                let _ = self.event_sender.send(Event::DoorUnlockDone(unlocked));
+                let _ = self.event_sender.send(Msg::DoorUnlockDone(unlocked));
             }
             Effect::CaptureFrames => {
                 let frames = self.device_camera.capture_frame();
-                let _ = self.event_sender.send(Event::FramesCaptureDone(frames));
+                let _ = self.event_sender.send(Msg::FramesCaptureDone(frames));
             }
             Effect::ClassifyFrames { frames } => {
                 let classifications = self
@@ -96,7 +92,7 @@ impl RunEffect {
 
                 let _ = self
                     .event_sender
-                    .send(Event::FramesClassifyDone(classifications));
+                    .send(Msg::FramesClassifyDone(classifications));
             }
         }
     }

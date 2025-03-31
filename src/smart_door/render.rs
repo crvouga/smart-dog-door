@@ -1,10 +1,10 @@
-use super::core::{DoorAction, DoorState};
 use crate::config::Config;
 use crate::device_display::interface::DeviceDisplay;
-use crate::smart_door::core::{CameraState, State};
+use crate::smart_door::core::{Model, ModelCamera, ModelConnecting, ModelDoor};
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::time::Duration;
+
+use super::core::ModelDeviceConnection;
 
 #[derive(Clone)]
 pub struct Render {
@@ -22,120 +22,48 @@ impl Render {
             config,
         }
     }
-    pub fn render(&self, state: &State) -> Result<(), Arc<dyn std::error::Error + Send + Sync>> {
-        let mut device_display = self.device_display.lock().unwrap();
 
+    pub fn render(&self, model: &Model) -> Result<(), Arc<dyn std::error::Error + Send + Sync>> {
+        let mut device_display = self.device_display.lock().unwrap();
         device_display.clear()?;
 
-        match state {
-            State::Error { error, .. } => {
-                device_display.write_line(0, &format!("Error: {}", error))?;
-            }
-            State::DevicesInitializing { device_states, .. } => {
-                match device_states.camera {
-                    CameraState::Disconnected => {
-                        device_display.write_line(0, "Camera connecting...")?;
-                    }
-                    CameraState::Connected(time) => {
-                        if time.elapsed() > Duration::from_secs(2) {
-                            device_display.write_line(0, "Camera connected")?;
-                        } else {
-                            device_display.write_line(0, "Camera connecting...")?;
-                        }
-                    }
-                    CameraState::Started => {
-                        device_display.write_line(0, "Camera connected")?;
-                    }
-                }
+        match model {
+            Model::Connecting(connecting) => {
+                let camera_text = match connecting.camera {
+                    ModelDeviceConnection::Connected => "camera connected",
+                    ModelDeviceConnection::Connecting => "camera connecting",
+                };
+                device_display.write_line(0, camera_text)?;
 
-                match device_states.door {
-                    DoorState::Disconnected => {
-                        device_display.write_line(1, "Door connecting...")?;
-                    }
-                    DoorState::Connected(time) => {
-                        if time.elapsed() > Duration::from_secs(2) {
-                            device_display.write_line(1, "Door connected")?;
-                        } else {
-                            device_display.write_line(1, "Door connecting...")?;
-                        }
-                    }
-                    _ => {
-                        device_display.write_line(1, "Door connected")?;
-                    }
-                }
+                let door_text = match connecting.door {
+                    ModelDeviceConnection::Connected => "door connected",
+                    ModelDeviceConnection::Connecting => "door connecting",
+                };
+                device_display.write_line(1, door_text)?;
             }
-            State::AnalyzingFramesCapture { .. } | State::AnalyzingFramesClassifying { .. } => {
-                device_display.write_line(0, "Analyzing...")?;
-            }
-            State::ControllingDoor {
-                action, start_time, ..
-            } => match action {
-                DoorAction::Locking => {
-                    if start_time.elapsed() > Duration::from_secs(2) {
-                        device_display.write_line(0, "Door locked")?;
-                    } else {
-                        device_display.write_line(0, "Locking door...")?;
-                    }
-                }
-                DoorAction::Unlocking => {
-                    if start_time.elapsed() > Duration::from_secs(2) {
-                        device_display.write_line(0, "Door unlocked")?;
-                    } else {
-                        device_display.write_line(0, "Unlocking door...")?;
-                    }
-                }
-            },
-            State::UnlockedGracePeriod {
-                countdown_start, ..
-            } => {
-                let remaining = (self.config.unlock_grace_period.as_secs() as i64
-                    - countdown_start.elapsed().as_secs() as i64)
-                    .max(0);
-                device_display.write_line(0, &format!("Door unlocked ({}s)", remaining))?;
-            }
-            State::LockingGracePeriod {
-                countdown_start, ..
-            } => {
-                let remaining = (self.config.locking_grace_period.as_secs() as i64
-                    - countdown_start.elapsed().as_secs() as i64)
-                    .max(0);
-                device_display.write_line(0, &format!("Locking in {}...", remaining))?;
-            }
-            State::Idle {
-                status,
-                last_activity,
-                ..
-            } => {
-                if last_activity.elapsed() > Duration::from_secs(2) {
-                    device_display.write_line(0, status)?;
-                } else {
-                    // Split message into lines of max 16 chars
-                    let mut line = String::new();
-                    let mut first = true;
-                    for word in status.split_whitespace() {
-                        if line.len() + word.len() + 1 <= 16 {
-                            if !line.is_empty() {
-                                line.push(' ');
-                            }
-                            line.push_str(word);
-                        } else {
-                            if first {
-                                device_display.write_line(0, &line)?;
-                                first = false;
-                            } else {
-                                device_display.write_line(1, &line)?;
-                            }
-                            line = word.to_string();
-                        }
-                    }
-                    if first {
-                        device_display.write_line(0, &line)?;
-                    } else {
-                        device_display.write_line(1, &line)?;
-                    }
-                }
+            Model::Ready(ready) => {
+                // Render camera state
+                let camera_text = match ready.camera {
+                    ModelCamera::Idle => "camera idle",
+                    ModelCamera::Capturing => "camera capturing",
+                    ModelCamera::Classifying => "camera classifying",
+                };
+                device_display.write_line(0, camera_text)?;
+
+                // Render door state
+                let door_text = match ready.door {
+                    ModelDoor::LockingGracePeriod { .. } => "door locking",
+                    ModelDoor::Locking => "door locking",
+                    ModelDoor::Locked => "door locked",
+                    ModelDoor::UnlockingGracePeriod { .. } => "door unlocking",
+                    ModelDoor::Unlocking => "door unlocking",
+                    ModelDoor::Unlocked => "door unlocked",
+                };
+                device_display.write_line(1, door_text)?;
             }
         }
+
+        device_display.render()?;
 
         Ok(())
     }

@@ -20,6 +20,8 @@ pub trait DeviceDisplay: Send + Sync {
         2
     }
 
+    fn render(&mut self) -> Result<(), Box<dyn Error + Send + Sync>>;
+
     /// Get the number of characters per line supported by this display (always 16)
     #[allow(dead_code)]
     fn chars_per_line(&self) -> u8 {

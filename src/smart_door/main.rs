@@ -4,7 +4,7 @@ use crate::device_display::interface::DeviceDisplay;
 use crate::device_door::interface::DeviceDoor;
 use crate::image_classifier::interface::ImageClassifier;
 use crate::library::logger::interface::Logger;
-use crate::smart_door::core::{init, transition, Effect, Event, State};
+use crate::smart_door::core::{init, transition, Effect, Model, Msg};
 use crate::smart_door::render::Render;
 use crate::smart_door::run_effect::RunEffect;
 use std::io;
@@ -13,8 +13,8 @@ use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
 pub struct SmartDoor {
-    pub state: Arc<Mutex<State>>,
-    event_receiver: Arc<Mutex<Receiver<Event>>>,
+    model: Arc<Mutex<Model>>,
+    event_receiver: Arc<Mutex<Receiver<Msg>>>,
     config: Config,
     logger: Arc<dyn Logger + Send + Sync>,
     effect_runner: RunEffect,
@@ -31,7 +31,7 @@ impl SmartDoor {
         image_classifier: Arc<dyn ImageClassifier + Send + Sync>,
     ) -> Self {
         let (event_sender, event_receiver) = channel();
-        let (initial_state, _) = init();
+        let initial = init();
 
         let effect_runner = RunEffect::new(
             config.clone(),
@@ -50,7 +50,7 @@ impl SmartDoor {
             effect_runner,
             renderer,
             event_receiver: Arc::new(Mutex::new(event_receiver)),
-            state: Arc::new(Mutex::new(initial_state)),
+            model: Arc::new(Mutex::new(initial.0)),
         }
     }
 
@@ -63,23 +63,23 @@ impl SmartDoor {
     }
 
     fn run_loop(&self) -> Result<(), Arc<dyn std::error::Error + Send + Sync>> {
-        let (initial_state, initial_effects) = init();
-        *self.state.lock().unwrap() = initial_state.clone();
+        let initial = init();
+        *self.model.lock().unwrap() = initial.0.clone();
 
-        self.spawn_effects(initial_effects);
+        self.spawn_effects(initial.1);
 
-        let mut current_state = initial_state.clone();
+        let mut current_model = initial.0.clone();
 
         loop {
             match self.event_receiver.lock().unwrap().recv() {
                 Ok(event) => {
                     let _ = self.logger.info(&format!("Processing event: {:?}", event));
 
-                    let (new_state, effects) = transition(&self.config, current_state, event);
-                    current_state = new_state.clone();
-                    *self.state.lock().unwrap() = new_state;
+                    let (new_model, effects) = transition(&self.config, current_model, event);
+                    current_model = new_model.clone();
+                    *self.model.lock().unwrap() = new_model;
 
-                    if let Err(e) = self.renderer.render(&self.state.lock().unwrap()) {
+                    if let Err(e) = self.renderer.render(&self.model.lock().unwrap()) {
                         return Err::<(), Arc<dyn std::error::Error + Send + Sync>>(Arc::new(
                             io::Error::new(io::ErrorKind::Other, e.to_string()),
                         ));
