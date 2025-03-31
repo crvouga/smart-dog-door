@@ -1,4 +1,4 @@
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Classification {
     pub label: String,
     pub confidence: f32,
