@@ -228,8 +228,8 @@ fn transition_ready_main(config: &Config, model: ModelReady, msg: &Msg) -> (Mode
     let camera_result = transition_ready_camera(config, model.camera.clone(), &msg);
 
     // Check if detection changed
-    let detection_before = model.camera.to_detection(config);
-    let detection_after = camera_result.0.to_detection(config);
+    let detection_before = to_detection(&model.camera, config);
+    let detection_after = to_detection(&camera_result.0, config);
     let detection_changed = detection_before != detection_after;
 
     // Handle door state based on detection change
@@ -431,39 +431,37 @@ pub enum Detection {
     None,
 }
 
-impl ModelCamera {
-    pub fn to_detection(&self, config: &Config) -> Detection {
-        let dog_detected = self.latest_classifications.iter().any(|frame_class| {
-            frame_class.iter().any(|c| {
-                config
-                    .classification_unlock_list
-                    .iter()
-                    .any(|unlock_config| {
-                        c.label
-                            .to_lowercase()
-                            .contains(&unlock_config.label.to_lowercase())
-                            && c.confidence >= unlock_config.min_confidence
-                    })
-            })
-        });
-
-        let cat_detected = self.latest_classifications.iter().any(|frame_class| {
-            frame_class.iter().any(|c| {
-                config.classification_lock_list.iter().any(|lock_config| {
+pub fn to_detection(camera: &ModelCamera, config: &Config) -> Detection {
+    let dog_detected = camera.latest_classifications.iter().any(|frame_class| {
+        frame_class.iter().any(|c| {
+            config
+                .classification_unlock_list
+                .iter()
+                .any(|unlock_config| {
                     c.label
                         .to_lowercase()
-                        .contains(&lock_config.label.to_lowercase())
-                        && c.confidence >= lock_config.min_confidence
+                        .contains(&unlock_config.label.to_lowercase())
+                        && c.confidence >= unlock_config.min_confidence
                 })
-            })
-        });
+        })
+    });
 
-        if cat_detected {
-            Detection::Cat
-        } else if dog_detected {
-            Detection::Dog
-        } else {
-            Detection::None
-        }
+    let cat_detected = camera.latest_classifications.iter().any(|frame_class| {
+        frame_class.iter().any(|c| {
+            config.classification_lock_list.iter().any(|lock_config| {
+                c.label
+                    .to_lowercase()
+                    .contains(&lock_config.label.to_lowercase())
+                    && c.confidence >= lock_config.min_confidence
+            })
+        })
+    });
+
+    if cat_detected {
+        Detection::Cat
+    } else if dog_detected {
+        Detection::Dog
+    } else {
+        Detection::None
     }
 }

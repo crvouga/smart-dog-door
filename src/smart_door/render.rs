@@ -1,5 +1,6 @@
 use crate::config::Config;
 use crate::device_display::interface::DeviceDisplay;
+use crate::smart_door::core::to_detection;
 use crate::smart_door::core::{Model, ModelDoor};
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -42,7 +43,7 @@ impl Render {
                 device_display.write_line(1, door_text)?;
             }
             Model::Ready(ready) => {
-                let detection = ready.camera.to_detection(&self.config);
+                let detection = to_detection(&ready.camera, &self.config);
                 // Render camera state
                 let camera_text = match detection {
                     Detection::Cat => "cat",
