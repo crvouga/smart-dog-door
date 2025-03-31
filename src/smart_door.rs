@@ -281,25 +281,9 @@ impl SmartDoor {
                     )
                 } else {
                     let message = if should_lock {
-                        format!(
-                            "{} detected",
-                            self.config
-                                .lock_list
-                                .iter()
-                                .map(|c| c.label.as_str())
-                                .collect::<Vec<_>>()
-                                .join("/")
-                        )
+                        "Lock entity detected".to_string()
                     } else {
-                        format!(
-                            "No {} detected",
-                            self.config
-                                .unlock_list
-                                .iter()
-                                .map(|c| c.label.as_str())
-                                .collect::<Vec<_>>()
-                                .join("/")
-                        )
+                        "Unlock entity not detected".to_string()
                     };
 
                     match door_state {
@@ -513,8 +497,8 @@ impl SmartDoor {
 
     fn render(&self, state: &State) -> Result<(), Arc<dyn std::error::Error + Send + Sync>> {
         let mut device_display = self.device_display.lock().unwrap();
-        device_display.write_line(0, "")?;
-        device_display.write_line(1, "")?;
+
+        device_display.clear()?;
 
         match state {
             State::DevicesInitializing { device_states } => {
@@ -595,7 +579,30 @@ impl SmartDoor {
                 if message_time.elapsed() > Duration::from_secs(2) {
                     device_display.write_line(0, "Analyzing...")?;
                 } else {
-                    device_display.write_line(0, message)?;
+                    // Split message into lines of max 16 chars
+                    let mut line = String::new();
+                    let mut first = true;
+                    for word in message.split_whitespace() {
+                        if line.len() + word.len() + 1 <= 16 {
+                            if !line.is_empty() {
+                                line.push(' ');
+                            }
+                            line.push_str(word);
+                        } else {
+                            if first {
+                                device_display.write_line(0, &line)?;
+                                first = false;
+                            } else {
+                                device_display.write_line(1, &line)?;
+                            }
+                            line = word.to_string();
+                        }
+                    }
+                    if first {
+                        device_display.write_line(0, &line)?;
+                    } else {
+                        device_display.write_line(1, &line)?;
+                    }
                 }
             }
         }

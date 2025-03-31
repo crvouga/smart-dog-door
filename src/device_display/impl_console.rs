@@ -38,7 +38,6 @@ impl DeviceDisplay for DeviceDisplayConsole {
 
     fn clear(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
         self.display_buffer = [[' '; 16]; 2];
-        self.render_display();
         Ok(())
     }
 
