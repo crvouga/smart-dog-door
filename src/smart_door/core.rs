@@ -4,13 +4,13 @@ use crate::device_door::interface::DeviceDoorEvent;
 use crate::image_classifier::interface::Classification;
 use std::time::Instant;
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Debug, PartialEq, Eq)]
 pub struct DeviceStates {
     pub camera: CameraState,
     pub door: DoorState,
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Debug, PartialEq, Eq)]
 pub enum CameraState {
     #[default]
     Disconnected,
@@ -18,7 +18,7 @@ pub enum CameraState {
     Started,
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Debug, PartialEq, Eq)]
 pub enum DoorState {
     #[default]
     Disconnected,
@@ -28,7 +28,7 @@ pub enum DoorState {
     Unlocked,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum State {
     DevicesInitializing {
         device_states: DeviceStates,
@@ -63,7 +63,7 @@ pub enum State {
     },
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DoorAction {
     Locking,
     Unlocking,

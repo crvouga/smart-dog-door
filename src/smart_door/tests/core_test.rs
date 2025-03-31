@@ -1,12 +1,14 @@
 #[cfg(test)]
 mod core_test {
 
+    use std::time::{Duration, Instant};
+
     use crate::config::{ClassificationConfig, Config};
     use crate::device_camera::interface::DeviceCameraEvent;
     use crate::device_door::interface::DeviceDoorEvent;
     use crate::image_classifier::interface::Classification;
     use crate::smart_door::core::{
-        init, transition, CameraState, DoorAction, DoorState, Effect, Event, State,
+        init, transition, CameraState, DeviceStates, DoorAction, DoorState, Effect, Event, State,
     };
 
     #[test]
@@ -192,5 +194,111 @@ mod core_test {
             _ => panic!("Unexpected state"),
         }
         assert!(effects.is_empty());
+    }
+
+    #[test]
+    fn test_device_initialization() {
+        let (initial_state, initial_effects) = init();
+
+        match initial_state {
+            State::DevicesInitializing { device_states } => {
+                assert!(matches!(device_states.camera, CameraState::Disconnected));
+                assert!(matches!(device_states.door, DoorState::Disconnected));
+            }
+            _ => panic!("Unexpected state"),
+        }
+
+        assert_eq!(
+            initial_effects,
+            vec![
+                Effect::SubscribeToDoorEvents,
+                Effect::SubscribeToCameraEvents,
+                Effect::SubscribeTick
+            ]
+        );
+    }
+
+    #[test]
+    fn test_device_connection_sequence() {
+        let config = Config::default();
+        let state = State::DevicesInitializing {
+            device_states: DeviceStates::default(),
+        };
+
+        // Test camera connects first
+        let (state, effects) = transition(
+            &config,
+            state,
+            Event::CameraEvent(DeviceCameraEvent::Connected),
+        );
+
+        match state.clone() {
+            State::DevicesInitializing { device_states } => {
+                assert!(matches!(device_states.camera, CameraState::Connected(_)));
+                assert!(matches!(device_states.door, DoorState::Disconnected));
+            }
+            _ => panic!("Unexpected state"),
+        }
+        assert_eq!(effects, vec![Effect::StartCamera]);
+
+        // Then door connects
+        let (state, effects) =
+            transition(&config, state, Event::DoorEvent(DeviceDoorEvent::Connected));
+
+        match state {
+            State::DevicesInitializing { device_states } => {
+                assert!(matches!(device_states.camera, CameraState::Connected(_)));
+                assert!(matches!(device_states.door, DoorState::Connected(_)));
+            }
+            _ => panic!("Unexpected state"),
+        }
+        assert_eq!(effects, vec![Effect::LockDoor]);
+    }
+
+    #[test]
+    fn test_frame_analysis_sequence() {
+        let config = Config::default();
+        let state = State::AnalyzingFramesCapture {
+            door_state: DoorState::Locked,
+        };
+
+        let frames = vec![vec![0u8; 100]];
+        let (state, effects) =
+            transition(&config, state, Event::FramesCaptureDone(Ok(frames.clone())));
+
+        match state {
+            State::AnalyzingFramesClassifying { door_state } => {
+                assert!(matches!(door_state, DoorState::Locked));
+            }
+            _ => panic!("Unexpected state"),
+        }
+        assert_eq!(effects, vec![Effect::ClassifyFrames { frames }]);
+    }
+
+    #[test]
+    fn test_grace_period_transitions() {
+        let mut config = Config::default();
+        config.unlock_grace_period = Duration::from_secs(5);
+        let start_time = Instant::now();
+
+        let state = State::UnlockedGracePeriod {
+            door_state: DoorState::Unlocked,
+            countdown_start: start_time,
+        };
+
+        // Test grace period expires
+        let (state, effects) = transition(
+            &config,
+            state,
+            Event::Tick(start_time + config.unlock_grace_period + Duration::from_secs(1)),
+        );
+
+        match state {
+            State::AnalyzingFramesCapture { door_state } => {
+                assert!(matches!(door_state, DoorState::Unlocked));
+            }
+            _ => panic!("Unexpected state: {:?}", state),
+        }
+        assert_eq!(effects, vec![Effect::CaptureFrames]);
     }
 }
