@@ -222,10 +222,10 @@ fn transition_connected(
     event: Event,
 ) -> (State, Vec<Effect>) {
     // Process door state transitions
-    let door_result = handle_door_state(state.door, &event);
+    let door_result = transition_door(state.door, &event);
 
     // Process frame analysis state transitions
-    let frame_result = handle_frame_state(config, state.camera, event);
+    let frame_result = transition_frame(config, state.camera, event);
 
     // Combine results
     let combined_state = StateConnected {
@@ -239,7 +239,7 @@ fn transition_connected(
     (State::Connected(combined_state), combined_effects)
 }
 
-fn handle_door_state(current: StateDoor, event: &Event) -> (StateDoor, Vec<Effect>) {
+fn transition_door(current: StateDoor, event: &Event) -> (StateDoor, Vec<Effect>) {
     match (current.clone(), event) {
         (StateDoor::Locking { .. }, Event::DoorLockDone(Ok(_))) => (StateDoor::Locked, vec![]),
 
@@ -262,7 +262,7 @@ fn handle_door_state(current: StateDoor, event: &Event) -> (StateDoor, Vec<Effec
     }
 }
 
-fn handle_frame_state(
+fn transition_frame(
     config: &Config,
     current: StateCamera,
     event: Event,
