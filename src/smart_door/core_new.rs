@@ -7,7 +7,7 @@ use std::time::Instant;
 //
 //
 //
-// Model
+
 //
 //
 //
@@ -44,24 +44,16 @@ pub struct ModelReady {
     door: ModelDoor,
 }
 
-#[derive(Clone, Debug, PartialEq, Default)]
-pub struct ModelCamera {
-    status: ModelCameraStatus,
-    classifications: Vec<Vec<Classification>>,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ModelCameraStatus {
-    Idle { start_time: Instant },
+pub enum ModelCamera {
+    Idle,
     Capturing,
-    Classifying(Vec<Frame>),
+    Classifying,
 }
 
-impl Default for ModelCameraStatus {
+impl Default for ModelCamera {
     fn default() -> Self {
-        ModelCameraStatus::Idle {
-            start_time: Instant::now(),
-        }
+        ModelCamera::Idle
     }
 }
 
@@ -114,7 +106,7 @@ pub enum Effect {
 //
 //
 //
-// Init
+
 //
 //
 //
@@ -133,13 +125,12 @@ pub fn init() -> (Model, Vec<Effect>) {
 //
 //
 //
-// Transition
+
 //
 //
 //
 
 pub fn transition(config: &Config, state: Model, event: Event) -> (Model, Vec<Effect>) {
-    // Handle other state transitions
     match (state, event) {
         (_, Event::CameraEvent(DeviceCameraEvent::Disconnected)) => {
             (Model::Connecting(ModelConnecting::Connecting), vec![])
@@ -161,7 +152,6 @@ fn transition_connecting(
     event: Event,
 ) -> (Model, Vec<Effect>) {
     match (state, event) {
-        // Initial connection of both devices
         (ModelConnecting::Connecting, Event::CameraEvent(DeviceCameraEvent::Connected)) => (
             Model::Connecting(ModelConnecting::OnlyDoorConnecting),
             vec![Effect::StartCamera],
@@ -172,37 +162,19 @@ fn transition_connecting(
             vec![],
         ),
 
-        // Camera connection handling
-        (ModelConnecting::OnlyDoorConnecting, Event::CameraStartDone(Ok(()))) => (
-            Model::Ready(ModelReady {
-                camera: ModelCamera {
-                    status: ModelCameraStatus::Capturing,
-                    classifications: vec![],
-                },
-                door: ModelDoor::Unlocked,
-            }),
-            vec![],
-        ),
+        (ModelConnecting::OnlyDoorConnecting, Event::CameraStartDone(Ok(()))) => {
+            (Model::Ready(ModelReady::default()), vec![])
+        }
 
-        // Door connection handling
-        (ModelConnecting::OnlyCameraConnecting, Event::DoorEvent(DeviceDoorEvent::Connected)) => (
-            Model::Ready(ModelReady {
-                camera: ModelCamera {
-                    status: ModelCameraStatus::Capturing,
-                    classifications: vec![],
-                },
-                door: ModelDoor::Unlocked,
-            }),
-            vec![],
-        ),
+        (ModelConnecting::OnlyCameraConnecting, Event::DoorEvent(DeviceDoorEvent::Connected)) => {
+            (Model::Ready(ModelReady::default()), vec![])
+        }
 
-        // Error cases
         (ModelConnecting::OnlyDoorConnecting, Event::CameraStartDone(Err(_))) => (
             Model::Connecting(ModelConnecting::OnlyDoorConnecting),
-            vec![Effect::StartCamera], // Retry
+            vec![Effect::StartCamera],
         ),
 
-        // Disconnection handling
         (_, Event::CameraEvent(DeviceCameraEvent::Disconnected)) => {
             (Model::Connecting(ModelConnecting::Connecting), vec![])
         }
@@ -211,7 +183,6 @@ fn transition_connecting(
             (Model::Connecting(ModelConnecting::Connecting), vec![])
         }
 
-        // Default case - no state change
         (state, _) => (Model::Connecting(state), vec![]),
     }
 }
@@ -239,158 +210,98 @@ fn transition_door(current: ModelDoor, event: &Event) -> (ModelDoor, Vec<Effect>
             (ModelDoor::Unlocked, vec![])
         }
 
-        (ModelDoor::Locking { .. }, Event::DoorLockDone(Err(_))) => (
-            ModelDoor::Locked,
-            vec![Effect::LockDoor], // Retry
-        ),
+        (ModelDoor::Locking { .. }, Event::DoorLockDone(Err(_))) => {
+            (ModelDoor::Locked, vec![Effect::LockDoor])
+        }
 
-        (ModelDoor::Unlocking { .. }, Event::DoorUnlockDone(Err(_))) => (
-            ModelDoor::Locked,
-            vec![Effect::UnlockDoor], // Retry
-        ),
+        (ModelDoor::Unlocking { .. }, Event::DoorUnlockDone(Err(_))) => {
+            (ModelDoor::Locked, vec![Effect::UnlockDoor])
+        }
 
-        // No change for other events
         _ => (current, vec![]),
     }
 }
 
 fn transition_camera(
     config: &Config,
-    current: ModelCamera,
+    model: ModelCamera,
     event: Event,
 ) -> (ModelCamera, Vec<Effect>) {
-    match (current, event) {
-        // Frame capture transitions
-        (
-            ModelCamera {
-                status: ModelCameraStatus::Capturing,
-                ..
-            },
-            Event::FramesCaptureDone(Ok(frames)),
-        ) => {
+    match (model.clone(), event) {
+        (ModelCamera::Capturing { .. }, Event::FramesCaptureDone(Ok(frames))) => {
             if frames.is_empty() {
-                (
-                    ModelCamera {
-                        status: ModelCameraStatus::Capturing,
-                        classifications: vec![],
-                    },
-                    vec![Effect::CaptureFrames],
-                )
-            } else {
-                (
-                    ModelCamera {
-                        status: ModelCameraStatus::Classifying(frames.clone()),
-                        classifications: vec![],
-                    },
-                    vec![Effect::ClassifyFrames {
-                        frames: frames.clone(),
-                    }],
-                )
+                return (model, vec![]);
+            }
+
+            (
+                ModelCamera::Classifying,
+                vec![Effect::ClassifyFrames {
+                    frames: frames.clone(),
+                }],
+            )
+        }
+
+        (ModelCamera::Classifying { .. }, Event::FramesClassifyDone(Ok(classifications))) => {
+            let outcome = to_classification_outcome(config, &classifications);
+
+            let model_new = ModelCamera::Idle;
+
+            match outcome {
+                ClassificationOutcome::CatDetected => (model_new, vec![Effect::LockDoor]),
+                ClassificationOutcome::DogDetected => (model_new, vec![Effect::UnlockDoor]),
+                ClassificationOutcome::NoDetection => (model_new, vec![]),
             }
         }
 
-        // Frame classification transitions
-        (
-            ModelCamera {
-                status: ModelCameraStatus::Classifying(..),
-                ..
-            },
-            Event::FramesClassifyDone(Ok(classifications)),
-        ) => {
-            let dog_detected = classifications.iter().any(|frame_class| {
-                frame_class.iter().any(|c| {
-                    config.unlock_list.iter().any(|unlock_config| {
-                        c.label
-                            .to_lowercase()
-                            .contains(&unlock_config.label.to_lowercase())
-                            && c.confidence >= unlock_config.min_confidence
-                    })
-                })
-            });
-
-            let cat_detected = classifications.iter().any(|frame_class| {
-                frame_class.iter().any(|c| {
-                    config.lock_list.iter().any(|lock_config| {
-                        c.label
-                            .to_lowercase()
-                            .contains(&lock_config.label.to_lowercase())
-                            && c.confidence >= lock_config.min_confidence
-                    })
-                })
-            });
-
-            // Note: Door effects are handled separately now
-            if dog_detected && !cat_detected {
-                (
-                    ModelCamera {
-                        status: ModelCameraStatus::Capturing,
-                        classifications: vec![],
-                    },
-                    vec![Effect::UnlockDoor],
-                )
-            } else if cat_detected {
-                (
-                    ModelCamera {
-                        status: ModelCameraStatus::Capturing,
-                        classifications: vec![],
-                    },
-                    vec![Effect::LockDoor],
-                )
-            } else {
-                (
-                    ModelCamera {
-                        status: ModelCameraStatus::Capturing,
-                        classifications: vec![],
-                    },
-                    vec![Effect::CaptureFrames],
-                )
-            }
+        (ModelCamera::Classifying { .. }, Event::FramesClassifyDone(Err(_))) => {
+            (ModelCamera::Capturing, vec![Effect::CaptureFrames])
         }
 
-        // Error cases
-        (
-            ModelCamera {
-                status: ModelCameraStatus::Capturing,
-                classifications,
-            },
-            Event::FramesCaptureDone(Err(_)),
-        ) => (
-            ModelCamera {
-                status: ModelCameraStatus::Capturing,
-                classifications,
-            },
-            vec![Effect::CaptureFrames], // Retry
-        ),
+        (ModelCamera::Idle, Event::Tick(_)) => {
+            (ModelCamera::Capturing, vec![Effect::CaptureFrames])
+        }
 
-        (
-            ModelCamera {
-                status: ModelCameraStatus::Classifying(..),
-                classifications,
-            },
-            Event::FramesClassifyDone(Err(_)),
-        ) => (
-            ModelCamera {
-                status: ModelCameraStatus::Capturing,
-                classifications,
-            },
-            vec![Effect::CaptureFrames], // Retry with new frames
-        ),
-        // Periodic checks
-        (
-            ModelCamera {
-                status: ModelCameraStatus::Capturing,
-                classifications,
-            },
-            Event::Tick(_),
-        ) => (
-            ModelCamera {
-                status: ModelCameraStatus::Capturing,
-                classifications,
-            },
-            vec![Effect::CaptureFrames],
-        ),
-
-        // No change for other events
         (current, _) => (current, vec![]),
+    }
+}
+
+enum ClassificationOutcome {
+    CatDetected,
+    DogDetected,
+    NoDetection,
+}
+
+fn to_classification_outcome(
+    config: &Config,
+    classifications: &Vec<Vec<Classification>>,
+) -> ClassificationOutcome {
+    let dog_detected = classifications.iter().any(|frame_class| {
+        frame_class.iter().any(|c| {
+            config.unlock_list.iter().any(|unlock_config| {
+                c.label
+                    .to_lowercase()
+                    .contains(&unlock_config.label.to_lowercase())
+                    && c.confidence >= unlock_config.min_confidence
+            })
+        })
+    });
+
+    let cat_detected = classifications.iter().any(|frame_class| {
+        frame_class.iter().any(|c| {
+            config.lock_list.iter().any(|lock_config| {
+                c.label
+                    .to_lowercase()
+                    .contains(&lock_config.label.to_lowercase())
+                    && c.confidence >= lock_config.min_confidence
+            })
+        })
+    });
+
+    if cat_detected {
+        ClassificationOutcome::CatDetected
+    } else if dog_detected {
+        ClassificationOutcome::DogDetected
+    } else {
+        ClassificationOutcome::NoDetection
     }
 }
