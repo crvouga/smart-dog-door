@@ -1,6 +1,6 @@
 use crate::config::Config;
 use crate::device_display::interface::DeviceDisplay;
-use crate::smart_door::core::{Model, ModelCamera, ModelConnecting, ModelDoor};
+use crate::smart_door::core::{Model, ModelCameraState, ModelDoor};
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -43,21 +43,21 @@ impl Render {
             }
             Model::Ready(ready) => {
                 // Render camera state
-                let camera_text = match ready.camera {
-                    ModelCamera::Idle => "camera idle",
-                    ModelCamera::Capturing => "camera capturing",
-                    ModelCamera::Classifying => "camera classifying",
+                let camera_text = match ready.camera.state {
+                    ModelCameraState::Idle => "idle",
+                    ModelCameraState::Capturing => "capturing",
+                    ModelCameraState::Classifying => "classifying",
                 };
                 device_display.write_line(0, camera_text)?;
 
                 // Render door state
                 let door_text = match ready.door {
-                    ModelDoor::LockingGracePeriod { .. } => "door locking",
-                    ModelDoor::Locking => "door locking",
-                    ModelDoor::Locked => "door locked",
-                    ModelDoor::UnlockingGracePeriod { .. } => "door unlocking",
-                    ModelDoor::Unlocking => "door unlocking",
-                    ModelDoor::Unlocked => "door unlocked",
+                    ModelDoor::LockingGracePeriod { .. } => "locking",
+                    ModelDoor::Locking => "locking",
+                    ModelDoor::Locked => "locked",
+                    ModelDoor::UnlockingGracePeriod { .. } => "unlocking",
+                    ModelDoor::Unlocking => "unlocking",
+                    ModelDoor::Unlocked => "unlocked",
                 };
                 device_display.write_line(1, door_text)?;
             }

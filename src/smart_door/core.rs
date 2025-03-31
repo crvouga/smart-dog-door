@@ -52,17 +52,26 @@ pub struct ModelReady {
     pub door: ModelDoor,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ModelCamera {
+#[derive(Clone, Debug, PartialEq)]
+pub struct ModelCamera {
+    pub state: ModelCameraState,
+    pub latest_classifications: Vec<Vec<Classification>>,
+}
+impl Default for ModelCamera {
+    fn default() -> Self {
+        ModelCamera {
+            state: ModelCameraState::default(),
+            latest_classifications: vec![],
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub enum ModelCameraState {
+    #[default]
     Idle,
     Capturing,
     Classifying,
-}
-
-impl Default for ModelCamera {
-    fn default() -> Self {
-        ModelCamera::Idle
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -112,7 +121,6 @@ pub enum Effect {
 //
 //
 //
-
 //
 //
 //
@@ -222,8 +230,9 @@ fn transition_ready(config: &Config, model: ModelReady, msg: Msg) -> (Model, Vec
 }
 
 fn transition_ready_main(config: &Config, model: ModelReady, msg: &Msg) -> (Model, Vec<Effect>) {
-    let door_result = transition_ready_door(model.door, &msg);
     let camera_result = transition_ready_camera(config, model.camera, &msg);
+
+    let door_result = transition_ready_door(model.door, &msg);
 
     let combined = ModelReady {
         camera: camera_result.0,
@@ -255,43 +264,94 @@ fn transition_ready_door(model: ModelDoor, msg: &Msg) -> (ModelDoor, Vec<Effect>
 }
 
 fn transition_ready_camera(
-    config: &Config,
+    _config: &Config,
     model: ModelCamera,
     msg: &Msg,
 ) -> (ModelCamera, Vec<Effect>) {
     match (model.clone(), msg) {
-        (ModelCamera::Idle, Msg::Tick(_)) => (ModelCamera::Capturing, vec![Effect::CaptureFrames]),
+        (
+            ModelCamera {
+                state: ModelCameraState::Idle,
+                ..
+            },
+            Msg::Tick(_),
+        ) => (
+            ModelCamera {
+                state: ModelCameraState::Capturing,
+                latest_classifications: model.latest_classifications,
+            },
+            vec![Effect::CaptureFrames],
+        ),
 
-        (ModelCamera::Capturing { .. }, Msg::FramesCaptureDone(Ok(frames))) => {
+        (
+            ModelCamera {
+                state: ModelCameraState::Capturing,
+                ..
+            },
+            Msg::FramesCaptureDone(Ok(frames)),
+        ) => {
             if frames.is_empty() {
-                return (ModelCamera::Idle, vec![]);
+                return (
+                    ModelCamera {
+                        state: ModelCameraState::Idle,
+                        latest_classifications: model.latest_classifications,
+                    },
+                    vec![],
+                );
             }
 
             (
-                ModelCamera::Classifying,
+                ModelCamera {
+                    state: ModelCameraState::Classifying,
+                    latest_classifications: model.latest_classifications,
+                },
                 vec![Effect::ClassifyFrames {
                     frames: frames.clone(),
                 }],
             )
         }
 
-        (ModelCamera::Capturing { .. }, Msg::FramesCaptureDone(Err(_))) => {
-            (ModelCamera::Idle, vec![])
-        }
+        (
+            ModelCamera {
+                state: ModelCameraState::Capturing,
+                ..
+            },
+            Msg::FramesCaptureDone(Err(_)),
+        ) => (
+            ModelCamera {
+                state: ModelCameraState::Idle,
+                latest_classifications: model.latest_classifications,
+            },
+            vec![],
+        ),
 
-        (ModelCamera::Classifying { .. }, Msg::FramesClassifyDone(Ok(classifications))) => {
-            let outcome = to_classification_outcome(config, &classifications);
+        (
+            ModelCamera {
+                state: ModelCameraState::Classifying,
+                ..
+            },
+            Msg::FramesClassifyDone(Ok(classifications)),
+        ) => (
+            ModelCamera {
+                state: ModelCameraState::Idle,
+                latest_classifications: classifications.clone(),
+            },
+            vec![],
+        ),
 
-            match outcome {
-                ClassificationOutcome::CatDetected => (ModelCamera::Idle, vec![Effect::LockDoor]),
-                ClassificationOutcome::DogDetected => (ModelCamera::Idle, vec![Effect::UnlockDoor]),
-                ClassificationOutcome::NoDetection => (ModelCamera::Idle, vec![]),
-            }
-        }
-
-        (ModelCamera::Classifying { .. }, Msg::FramesClassifyDone(Err(_))) => {
-            (ModelCamera::Idle, vec![])
-        }
+        (
+            ModelCamera {
+                state: ModelCameraState::Classifying,
+                ..
+            },
+            Msg::FramesClassifyDone(Err(_)),
+        ) => (
+            ModelCamera {
+                state: ModelCameraState::Idle,
+                latest_classifications: model.latest_classifications,
+            },
+            vec![],
+        ),
 
         (model, _) => (model, vec![]),
     }
