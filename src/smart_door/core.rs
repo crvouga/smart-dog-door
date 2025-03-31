@@ -230,7 +230,14 @@ fn transition_ready(config: &Config, model: ModelReady, msg: Msg) -> (Model, Vec
 }
 
 fn transition_ready_main(config: &Config, model: ModelReady, msg: &Msg) -> (Model, Vec<Effect>) {
-    let camera_result = transition_ready_camera(config, model.camera, &msg);
+    let camera_result = transition_ready_camera(config, model.camera.clone(), &msg);
+
+    let detection_before = model.camera.to_detection(config);
+    let detection_after = camera_result.0.to_detection(config);
+
+    if detection_before != detection_after {
+        println!("Detection changed: {:?}", detection_after);
+    }
 
     let door_result = transition_ready_door(model.door, &msg);
 
@@ -243,6 +250,13 @@ fn transition_ready_main(config: &Config, model: ModelReady, msg: &Msg) -> (Mode
     combined_effects.extend(camera_result.1);
 
     (Model::Ready(combined), combined_effects)
+}
+
+fn transition_door_detection_changed(model: ModelDoor, msg: &Msg) -> (ModelDoor, Vec<Effect>) {
+    match (model.clone(), msg) {
+        (ModelDoor::Locking { .. }, Msg::DoorLockDone(Ok(_))) => (ModelDoor::Locked, vec![]),
+        _ => (model, vec![]),
+    }
 }
 
 fn transition_ready_door(model: ModelDoor, msg: &Msg) -> (ModelDoor, Vec<Effect>) {
@@ -357,6 +371,7 @@ fn transition_ready_camera(
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Detection {
     Cat,
     Dog,
