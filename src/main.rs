@@ -1,10 +1,9 @@
-use device_camera::impl_multi::MultiDeviceCamera;
-use device_display::impl_console::DeviceDisplayConsole;
-
 use crate::{
     config::Config, device_camera::impl_fake::DeviceCameraFake,
-    device_door::impl_fake::DeviceDoorFake, image_classifier::impl_fake::ImageClassifierFake,
-    library::logger::impl_console::LoggerConsole, smart_door::SmartDoor,
+    device_camera::impl_multi::MultiDeviceCamera,
+    device_display::impl_console::DeviceDisplayConsole, device_door::impl_fake::DeviceDoorFake,
+    image_classifier::impl_fake::ImageClassifierFake, library::logger::impl_console::LoggerConsole,
+    smart_door::smart_door_::SmartDoor,
 };
 use std::sync::{Arc, Mutex};
 
