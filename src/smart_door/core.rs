@@ -48,6 +48,7 @@ pub struct ModelCamera {
     pub state: ModelCameraState,
     pub latest_classifications: Vec<Vec<Classification>>,
 }
+
 impl Default for ModelCamera {
     fn default() -> Self {
         ModelCamera {
@@ -57,20 +58,27 @@ impl Default for ModelCamera {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Default)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ModelCameraState {
-    #[default]
-    Idle,
-    Capturing,
-    Classifying,
+    Idle { start_time: Instant },
+    Capturing { start_time: Instant },
+    Classifying { start_time: Instant },
+}
+
+impl Default for ModelCameraState {
+    fn default() -> Self {
+        ModelCameraState::Idle {
+            start_time: Instant::now(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ModelDoor {
-    Locking { start_time: Instant },
     Locked,
-    Unlocking { start_time: Instant },
+    WillUnlock { start_time: Instant },
     Unlocked,
+    WillLock { start_time: Instant },
 }
 
 impl Default for ModelDoor {
@@ -249,20 +257,26 @@ fn transition_ready_main(config: &Config, model: ModelReady, msg: &Msg) -> (Mode
 
 fn transition_door_on_detection_change(
     door: ModelDoor,
-    detection: Detection,
+    detection_new: Detection,
 ) -> (ModelDoor, Vec<Effect>) {
-    match (door, detection) {
+    match (door, detection_new) {
         (ModelDoor::Locked, Detection::Dog) => (
-            ModelDoor::Unlocking {
+            ModelDoor::WillUnlock {
                 start_time: Instant::now(),
             },
             vec![],
         ),
-        (ModelDoor::Unlocking { .. }, Detection::Cat) => {
+        (ModelDoor::WillUnlock { .. }, Detection::Cat) => {
             (ModelDoor::Locked, vec![Effect::LockDoor])
         }
-        (ModelDoor::Unlocked, Detection::None) | (ModelDoor::Unlocked, Detection::Cat) => (
-            ModelDoor::Locking {
+        (ModelDoor::Unlocked, Detection::None) => (
+            ModelDoor::WillLock {
+                start_time: Instant::now(),
+            },
+            vec![],
+        ),
+        (ModelDoor::Unlocked, Detection::Cat) => (
+            ModelDoor::WillLock {
                 start_time: Instant::now(),
             },
             vec![],
@@ -273,34 +287,34 @@ fn transition_door_on_detection_change(
 
 fn transition_door_on_msg(config: &Config, door: ModelDoor, msg: &Msg) -> (ModelDoor, Vec<Effect>) {
     match (door.clone(), msg) {
-        (ModelDoor::Unlocking { start_time }, Msg::Tick(now)) => {
+        (ModelDoor::WillUnlock { start_time }, Msg::Tick(now)) => {
             if now.duration_since(start_time) >= config.minimal_duration_unlocking {
                 (ModelDoor::Unlocked, vec![Effect::UnlockDoor])
             } else {
                 (door, vec![])
             }
         }
-        (ModelDoor::Locking { start_time }, Msg::Tick(now)) => {
+        (ModelDoor::WillLock { start_time }, Msg::Tick(now)) => {
             if now.duration_since(start_time) >= config.minimal_duration_locking {
                 (ModelDoor::Locked, vec![Effect::LockDoor])
             } else {
                 (door, vec![])
             }
         }
-        (ModelDoor::Unlocking { .. }, Msg::DoorUnlockDone(Ok(_))) => (ModelDoor::Unlocked, vec![]),
-        (ModelDoor::Locking { .. }, Msg::DoorLockDone(Ok(_))) => (ModelDoor::Locked, vec![]),
+        (ModelDoor::WillUnlock { .. }, Msg::DoorUnlockDone(Ok(_))) => (ModelDoor::Unlocked, vec![]),
+        (ModelDoor::WillLock { .. }, Msg::DoorLockDone(Ok(_))) => (ModelDoor::Locked, vec![]),
         _ => (door, vec![]),
     }
 }
 
 fn transition_ready_door(model: ModelDoor, msg: &Msg) -> (ModelDoor, Vec<Effect>) {
     match (model.clone(), msg) {
-        (ModelDoor::Locking { .. }, Msg::DoorLockDone(Ok(_))) => (ModelDoor::Locked, vec![]),
-        (ModelDoor::Unlocking { .. }, Msg::DoorUnlockDone(Ok(_))) => (ModelDoor::Unlocked, vec![]),
-        (ModelDoor::Locking { .. }, Msg::DoorLockDone(Err(_))) => {
+        (ModelDoor::WillLock { .. }, Msg::DoorLockDone(Ok(_))) => (ModelDoor::Locked, vec![]),
+        (ModelDoor::WillUnlock { .. }, Msg::DoorUnlockDone(Ok(_))) => (ModelDoor::Unlocked, vec![]),
+        (ModelDoor::WillLock { .. }, Msg::DoorLockDone(Err(_))) => {
             (ModelDoor::Locked, vec![Effect::LockDoor])
         }
-        (ModelDoor::Unlocking { .. }, Msg::DoorUnlockDone(Err(_))) => {
+        (ModelDoor::WillUnlock { .. }, Msg::DoorUnlockDone(Err(_))) => {
             (ModelDoor::Locked, vec![Effect::UnlockDoor])
         }
         _ => (model, vec![]),
@@ -308,28 +322,37 @@ fn transition_ready_door(model: ModelDoor, msg: &Msg) -> (ModelDoor, Vec<Effect>
 }
 
 fn transition_ready_camera(
-    _config: &Config,
+    config: &Config,
     model: ModelCamera,
     msg: &Msg,
 ) -> (ModelCamera, Vec<Effect>) {
     match (model.clone(), msg) {
         (
             ModelCamera {
-                state: ModelCameraState::Idle,
+                state: ModelCameraState::Idle { start_time },
                 ..
             },
-            Msg::Tick(_),
-        ) => (
-            ModelCamera {
-                state: ModelCameraState::Capturing,
-                latest_classifications: model.latest_classifications,
-            },
-            vec![Effect::CaptureFrames],
-        ),
+            Msg::Tick(now),
+        ) => {
+            let should_process =
+                now.duration_since(start_time) >= config.minimal_rate_camera_process;
+
+            if should_process {
+                (
+                    ModelCamera {
+                        state: ModelCameraState::Capturing { start_time: *now },
+                        latest_classifications: model.latest_classifications,
+                    },
+                    vec![Effect::CaptureFrames],
+                )
+            } else {
+                (model, vec![])
+            }
+        }
 
         (
             ModelCamera {
-                state: ModelCameraState::Capturing,
+                state: ModelCameraState::Capturing { start_time },
                 ..
             },
             Msg::FramesCaptureDone(Ok(frames)),
@@ -337,7 +360,7 @@ fn transition_ready_camera(
             if frames.is_empty() {
                 return (
                     ModelCamera {
-                        state: ModelCameraState::Idle,
+                        state: ModelCameraState::Idle { start_time },
                         latest_classifications: model.latest_classifications,
                     },
                     vec![],
@@ -346,7 +369,7 @@ fn transition_ready_camera(
 
             (
                 ModelCamera {
-                    state: ModelCameraState::Classifying,
+                    state: ModelCameraState::Classifying { start_time },
                     latest_classifications: model.latest_classifications,
                 },
                 vec![Effect::ClassifyFrames {
@@ -357,13 +380,13 @@ fn transition_ready_camera(
 
         (
             ModelCamera {
-                state: ModelCameraState::Capturing,
+                state: ModelCameraState::Capturing { start_time },
                 ..
             },
             Msg::FramesCaptureDone(Err(_)),
         ) => (
             ModelCamera {
-                state: ModelCameraState::Idle,
+                state: ModelCameraState::Idle { start_time },
                 latest_classifications: model.latest_classifications,
             },
             vec![],
@@ -371,13 +394,13 @@ fn transition_ready_camera(
 
         (
             ModelCamera {
-                state: ModelCameraState::Classifying,
+                state: ModelCameraState::Classifying { start_time },
                 ..
             },
             Msg::FramesClassifyDone(Ok(classifications)),
         ) => (
             ModelCamera {
-                state: ModelCameraState::Idle,
+                state: ModelCameraState::Idle { start_time },
                 latest_classifications: classifications.clone(),
             },
             vec![],
@@ -385,13 +408,13 @@ fn transition_ready_camera(
 
         (
             ModelCamera {
-                state: ModelCameraState::Classifying,
+                state: ModelCameraState::Classifying { start_time },
                 ..
             },
             Msg::FramesClassifyDone(Err(_)),
         ) => (
             ModelCamera {
-                state: ModelCameraState::Idle,
+                state: ModelCameraState::Idle { start_time },
                 latest_classifications: model.latest_classifications,
             },
             vec![],
@@ -412,18 +435,21 @@ impl ModelCamera {
     pub fn to_detection(&self, config: &Config) -> Detection {
         let dog_detected = self.latest_classifications.iter().any(|frame_class| {
             frame_class.iter().any(|c| {
-                config.unlock_list.iter().any(|unlock_config| {
-                    c.label
-                        .to_lowercase()
-                        .contains(&unlock_config.label.to_lowercase())
-                        && c.confidence >= unlock_config.min_confidence
-                })
+                config
+                    .classification_unlock_list
+                    .iter()
+                    .any(|unlock_config| {
+                        c.label
+                            .to_lowercase()
+                            .contains(&unlock_config.label.to_lowercase())
+                            && c.confidence >= unlock_config.min_confidence
+                    })
             })
         });
 
         let cat_detected = self.latest_classifications.iter().any(|frame_class| {
             frame_class.iter().any(|c| {
-                config.lock_list.iter().any(|lock_config| {
+                config.classification_lock_list.iter().any(|lock_config| {
                     c.label
                         .to_lowercase()
                         .contains(&lock_config.label.to_lowercase())
