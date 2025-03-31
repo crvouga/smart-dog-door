@@ -1,5 +1,5 @@
 use device_camera::impl_multi::MultiDeviceCamera;
-use device_display::impl_gui::DeviceDisplayGui;
+use device_display::impl_console::DeviceDisplayConsole;
 
 use crate::{
     config::Config, device_camera::impl_fake::DeviceCameraFake,
@@ -16,20 +16,18 @@ mod image_classifier;
 mod library;
 mod smart_door;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let device_display = Arc::new(Mutex::new(DeviceDisplayConsole::new()));
+
+    // Run smart door logic in a new thread
+
     let config = Config::default();
-
     let logger = Arc::new(LoggerConsole::new(config.logger_timezone));
-
     let device_camera = Arc::new(MultiDeviceCamera::new(vec![
         Arc::new(DeviceCameraFake::new(logger.clone())),
         Arc::new(DeviceCameraFake::new(logger.clone())),
     ]));
-
     let device_door = Arc::new(DeviceDoorFake::new(logger.clone()));
-
-    let device_display = Arc::new(Mutex::new(DeviceDisplayGui::new()));
-
     let image_classifier = Arc::new(ImageClassifierFake::new(logger.clone()));
 
     let smart_door = SmartDoor::new(
@@ -41,7 +39,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         image_classifier,
     );
 
-    smart_door.run()?;
+    smart_door.run().unwrap();
 
     Ok(())
 }

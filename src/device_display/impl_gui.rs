@@ -1,8 +1,8 @@
 use crate::device_display::interface::DeviceDisplay;
 use eframe::egui;
 use std::error::Error;
+use std::io;
 use std::sync::{Arc, Mutex};
-use std::thread;
 
 #[derive(Clone)]
 struct DisplayWindow {
@@ -62,32 +62,35 @@ impl DeviceDisplayGui {
             backlight_on: Arc::new(Mutex::new(true)),
         }
     }
+
+    #[allow(dead_code)]
+    pub fn run(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let display_buffer = self.display_buffer.clone();
+        let backlight_on = self.backlight_on.clone();
+
+        let options = eframe::NativeOptions {
+            viewport: egui::ViewportBuilder::default()
+                .with_inner_size([400.0, 200.0])
+                .with_resizable(false)
+                .with_active(false),
+            ..Default::default()
+        };
+
+        let window = DisplayWindow {
+            display_buffer,
+            backlight_on,
+        };
+
+        eframe::run_native("LCD Display", options, Box::new(|_cc| Box::new(window))).map_err(|e| {
+            Box::new(io::Error::new(io::ErrorKind::Other, e.to_string()))
+                as Box<dyn Error + Send + Sync>
+        })
+    }
 }
 
 impl DeviceDisplay for DeviceDisplayGui {
     fn init(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let display_buffer = self.display_buffer.clone();
-        let backlight_on = self.backlight_on.clone();
-
-        // Spawn the window in a separate thread
-        thread::spawn(move || {
-            let options = eframe::NativeOptions {
-                viewport: egui::ViewportBuilder::default()
-                    .with_inner_size([400.0, 200.0])
-                    .with_resizable(false),
-                ..Default::default()
-            };
-
-            let window = DisplayWindow {
-                display_buffer,
-                backlight_on,
-            };
-
-            // This will block in the new thread until the window is closed
-            let _ = eframe::run_native("LCD Display", options, Box::new(|_cc| Box::new(window)));
-        });
-
-        Ok(())
+        Ok(()) // GUI initialization now handled in run()
     }
 
     fn clear(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {

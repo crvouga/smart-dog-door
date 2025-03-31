@@ -4,6 +4,7 @@ use crate::device_display::interface::DeviceDisplay;
 use crate::device_door::interface::{DeviceDoor, DeviceDoorEvent};
 use crate::image_classifier::interface::{Classification, ImageClassifier};
 use crate::library::logger::interface::Logger;
+use std::io;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -619,7 +620,7 @@ impl SmartDoor {
         }
     }
 
-    pub fn run(&self) -> Result<(), Arc<dyn std::error::Error + Send + Sync>> {
+    fn run_loop(&self) -> Result<(), Arc<dyn std::error::Error + Send + Sync>> {
         let (mut current_state, effects) = self.init();
 
         self.spawn_effects(effects);
@@ -634,14 +635,26 @@ impl SmartDoor {
 
                     let (new_state, new_effects) = self.transition(current_state.clone(), event);
                     current_state = new_state;
-                    self.render(&current_state)?;
+                    if let Err(e) = self.render(&current_state) {
+                        return Err::<(), Arc<dyn std::error::Error + Send + Sync>>(Arc::new(
+                            io::Error::new(io::ErrorKind::Other, e.to_string()),
+                        ));
+                    }
 
                     self.spawn_effects(new_effects);
                 }
                 Err(e) => {
-                    return Err(Arc::new(e));
+                    return Err::<(), Arc<dyn std::error::Error + Send + Sync>>(Arc::new(
+                        io::Error::new(io::ErrorKind::Other, e.to_string()),
+                    ));
                 }
             }
         }
+    }
+
+    pub fn run(&self) -> Result<(), Arc<dyn std::error::Error + Send + Sync>> {
+        self.run_loop()?;
+
+        Ok(())
     }
 }
