@@ -92,9 +92,6 @@ impl Event {
     pub fn to_display_string(&self) -> String {
         match self {
             Event::FramesCaptureDone(Ok(_)) => "Frames captured successfully".to_string(),
-            Event::FramesClassifyDone(Ok(_)) => "Frames classified successfully".to_string(),
-            Event::CameraEvent(e) => format!("Camera event: {:?}", e),
-            Event::DoorEvent(e) => format!("Door event: {:?}", e),
             e => format!("{:?}", e),
         }
     }
