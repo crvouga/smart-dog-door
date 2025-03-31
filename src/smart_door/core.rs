@@ -132,19 +132,27 @@ pub fn transition(config: &Config, state: State, event: Event) -> (State, Vec<Ef
     match (state.clone(), event) {
         // Device connection handling
         (
-            State::DevicesInitializing { mut device_states },
+            State::DevicesInitializing { device_states },
             Event::CameraEvent(DeviceCameraEvent::Connected),
         ) => {
-            device_states.camera = CameraState::Connected(Instant::now());
+            let new_states = DeviceStates {
+                camera: CameraState::Connected(Instant::now()),
+                door: device_states.door,
+            };
             (
-                State::DevicesInitializing { device_states },
+                State::DevicesInitializing {
+                    device_states: new_states,
+                },
                 vec![Effect::StartCamera],
             )
         }
-        (State::DevicesInitializing { mut device_states }, Event::CameraStartDone(Ok(()))) => {
-            device_states.camera = CameraState::Started;
+        (State::DevicesInitializing { device_states }, Event::CameraStartDone(Ok(()))) => {
+            let new_states = DeviceStates {
+                camera: CameraState::Started,
+                door: device_states.door.clone(),
+            };
 
-            if matches!(device_states.door, DoorState::Initialized) {
+            if matches!(device_states.door.clone(), DoorState::Initialized) {
                 (
                     State::AnalyzingFramesCapture {
                         door_state: DoorState::Locked,
@@ -152,7 +160,12 @@ pub fn transition(config: &Config, state: State, event: Event) -> (State, Vec<Ef
                     vec![Effect::CaptureFrames],
                 )
             } else {
-                (State::DevicesInitializing { device_states }, vec![])
+                (
+                    State::DevicesInitializing {
+                        device_states: new_states,
+                    },
+                    vec![],
+                )
             }
         }
         (
@@ -170,10 +183,13 @@ pub fn transition(config: &Config, state: State, event: Event) -> (State, Vec<Ef
                 vec![Effect::LockDoor],
             )
         }
-        (State::DevicesInitializing { mut device_states }, Event::DoorLockDone(Ok(()))) => {
-            device_states.door = DoorState::Initialized;
+        (State::DevicesInitializing { device_states }, Event::DoorLockDone(Ok(()))) => {
+            let new_states = DeviceStates {
+                camera: device_states.camera.clone(),
+                door: DoorState::Initialized,
+            };
 
-            if matches!(device_states.camera, CameraState::Started) {
+            if matches!(device_states.camera.clone(), CameraState::Started) {
                 (
                     State::AnalyzingFramesCapture {
                         door_state: DoorState::Locked,
@@ -181,7 +197,12 @@ pub fn transition(config: &Config, state: State, event: Event) -> (State, Vec<Ef
                     vec![Effect::CaptureFrames],
                 )
             } else {
-                (State::DevicesInitializing { device_states }, vec![])
+                (
+                    State::DevicesInitializing {
+                        device_states: new_states,
+                    },
+                    vec![],
+                )
             }
         }
 
@@ -355,7 +376,7 @@ pub fn transition(config: &Config, state: State, event: Event) -> (State, Vec<Ef
                     vec![Effect::CaptureFrames],
                 )
             } else {
-                (state, vec![])
+                (state.clone(), vec![])
             }
         }
 
@@ -366,10 +387,11 @@ pub fn transition(config: &Config, state: State, event: Event) -> (State, Vec<Ef
             vec![],
         ),
         (_, Event::DoorEvent(DeviceDoorEvent::Disconnected)) => {
-            let mut effects = vec![];
-            if matches!(state, State::UnlockedGracePeriod { .. }) {
-                effects.push(Effect::LockDoor);
-            }
+            let effects = if matches!(state, State::UnlockedGracePeriod { .. }) {
+                vec![Effect::LockDoor]
+            } else {
+                vec![]
+            };
             (
                 State::DevicesInitializing {
                     device_states: DeviceStates::default(),
