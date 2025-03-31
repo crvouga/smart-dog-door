@@ -496,7 +496,7 @@ pub fn transition(config: &Config, state: State, event: Event) -> (State, Vec<Ef
             },
             Event::Tick(now),
         ) => {
-            if now.duration_since(last_activity) >= config.analyze_rate {
+            if now.duration_since(last_activity) >= config._analyze_rate {
                 (
                     State::AnalyzingFramesCapture {
                         door_state,

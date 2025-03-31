@@ -1,10 +1,10 @@
 use crate::config::Config;
 use crate::device_display::interface::DeviceDisplay;
-use crate::smart_door::core::{Model, ModelCameraState, ModelDoor};
+use crate::smart_door::core::{Model, ModelDoor};
 use std::sync::Arc;
 use std::sync::Mutex;
 
-use super::core::ModelDeviceConnection;
+use super::core::{Detection, ModelDeviceConnection};
 
 #[derive(Clone)]
 pub struct Render {
@@ -42,11 +42,12 @@ impl Render {
                 device_display.write_line(1, door_text)?;
             }
             Model::Ready(ready) => {
+                let detection = ready.camera.to_detection(&self.config);
                 // Render camera state
-                let camera_text = match ready.camera.state {
-                    ModelCameraState::Idle => "idle",
-                    ModelCameraState::Capturing => "capturing",
-                    ModelCameraState::Classifying => "classifying",
+                let camera_text = match detection {
+                    Detection::Cat => "cat",
+                    Detection::Dog => "dog",
+                    Detection::None => "none",
                 };
                 device_display.write_line(0, camera_text)?;
 

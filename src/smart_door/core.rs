@@ -357,43 +357,42 @@ fn transition_ready_camera(
     }
 }
 
-enum ClassificationOutcome {
-    CatDetected,
-    DogDetected,
-    NoDetection,
+pub enum Detection {
+    Cat,
+    Dog,
+    None,
 }
 
-fn to_classification_outcome(
-    config: &Config,
-    classifications: &Vec<Vec<Classification>>,
-) -> ClassificationOutcome {
-    let dog_detected = classifications.iter().any(|frame_class| {
-        frame_class.iter().any(|c| {
-            config.unlock_list.iter().any(|unlock_config| {
-                c.label
-                    .to_lowercase()
-                    .contains(&unlock_config.label.to_lowercase())
-                    && c.confidence >= unlock_config.min_confidence
+impl ModelCamera {
+    pub fn to_detection(&self, config: &Config) -> Detection {
+        let dog_detected = self.latest_classifications.iter().any(|frame_class| {
+            frame_class.iter().any(|c| {
+                config.unlock_list.iter().any(|unlock_config| {
+                    c.label
+                        .to_lowercase()
+                        .contains(&unlock_config.label.to_lowercase())
+                        && c.confidence >= unlock_config.min_confidence
+                })
             })
-        })
-    });
+        });
 
-    let cat_detected = classifications.iter().any(|frame_class| {
-        frame_class.iter().any(|c| {
-            config.lock_list.iter().any(|lock_config| {
-                c.label
-                    .to_lowercase()
-                    .contains(&lock_config.label.to_lowercase())
-                    && c.confidence >= lock_config.min_confidence
+        let cat_detected = self.latest_classifications.iter().any(|frame_class| {
+            frame_class.iter().any(|c| {
+                config.lock_list.iter().any(|lock_config| {
+                    c.label
+                        .to_lowercase()
+                        .contains(&lock_config.label.to_lowercase())
+                        && c.confidence >= lock_config.min_confidence
+                })
             })
-        })
-    });
+        });
 
-    if cat_detected {
-        ClassificationOutcome::CatDetected
-    } else if dog_detected {
-        ClassificationOutcome::DogDetected
-    } else {
-        ClassificationOutcome::NoDetection
+        if cat_detected {
+            Detection::Cat
+        } else if dog_detected {
+            Detection::Dog
+        } else {
+            Detection::None
+        }
     }
 }
