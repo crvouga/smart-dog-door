@@ -219,47 +219,48 @@ fn transition_ready(config: &Config, model: ModelReady, msg: Msg) -> (Model, Vec
             vec![],
         ),
 
-        _ => transition_ready_main(config, model, &msg),
+        _ => {
+            let (model_new, effects) = transition_ready_main(config, model, &msg);
+            (Model::Ready(model_new), effects)
+        }
     }
 }
 
-fn transition_ready_main(config: &Config, model: ModelReady, msg: &Msg) -> (Model, Vec<Effect>) {
-    // Handle camera state transition
-    let camera_result = transition_ready_camera(config, model.camera.clone(), &msg);
+fn transition_ready_main(
+    config: &Config,
+    model: ModelReady,
+    msg: &Msg,
+) -> (ModelReady, Vec<Effect>) {
+    let mut effects = vec![];
+    let camera = transition_ready_camera(config, model.camera.clone(), &msg);
 
-    // Check if detection changed
     let detection_before = to_detection(&model.camera, config);
-    let detection_after = to_detection(&camera_result.0, config);
-    let detection_changed = detection_before != detection_after;
+    let detection_after = to_detection(&camera.0, config);
 
-    // Handle door state based on detection change
-    let (door_state, door_effects) = if detection_changed {
-        transition_door_on_detection_change(model.door, detection_after)
-    } else {
-        transition_door_on_msg(config, model.door, msg)
+    let door = transition_door_on_detection_change(model.door, detection_before, detection_after);
+    effects.extend(door.1);
+
+    let door = transition_door_on_tick(config, door.0, &msg);
+    effects.extend(door.1);
+
+    let model_new = ModelReady {
+        camera: camera.0,
+        door: door.0,
     };
 
-    // Get final door state transition
-    let door_result = transition_ready_door(door_state, &msg);
-
-    // Combine results
-    let combined = ModelReady {
-        camera: camera_result.0,
-        door: door_result.0,
-    };
-
-    let mut combined_effects = camera_result.1;
-    combined_effects.extend(door_effects);
-    combined_effects.extend(door_result.1);
-
-    (Model::Ready(combined), combined_effects)
+    (model_new, effects)
 }
 
 fn transition_door_on_detection_change(
-    door: ModelDoor,
-    detection_new: Detection,
+    model: ModelDoor,
+    detection_before: Detection,
+    detection_after: Detection,
 ) -> (ModelDoor, Vec<Effect>) {
-    match (door, detection_new) {
+    if detection_before == detection_after {
+        return (model, vec![]);
+    }
+
+    match (model, detection_after) {
         (ModelDoor::Locked, Detection::Dog) => (
             ModelDoor::WillUnlock {
                 start_time: Instant::now(),
@@ -285,7 +286,11 @@ fn transition_door_on_detection_change(
     }
 }
 
-fn transition_door_on_msg(config: &Config, door: ModelDoor, msg: &Msg) -> (ModelDoor, Vec<Effect>) {
+fn transition_door_on_tick(
+    config: &Config,
+    door: ModelDoor,
+    msg: &Msg,
+) -> (ModelDoor, Vec<Effect>) {
     match (door.clone(), msg) {
         (ModelDoor::WillUnlock { start_time }, Msg::Tick(now)) => {
             if now.duration_since(start_time) >= config.minimal_duration_unlocking {
@@ -304,20 +309,6 @@ fn transition_door_on_msg(config: &Config, door: ModelDoor, msg: &Msg) -> (Model
         (ModelDoor::WillUnlock { .. }, Msg::DoorUnlockDone(Ok(_))) => (ModelDoor::Unlocked, vec![]),
         (ModelDoor::WillLock { .. }, Msg::DoorLockDone(Ok(_))) => (ModelDoor::Locked, vec![]),
         _ => (door, vec![]),
-    }
-}
-
-fn transition_ready_door(model: ModelDoor, msg: &Msg) -> (ModelDoor, Vec<Effect>) {
-    match (model.clone(), msg) {
-        (ModelDoor::WillLock { .. }, Msg::DoorLockDone(Ok(_))) => (ModelDoor::Locked, vec![]),
-        (ModelDoor::WillUnlock { .. }, Msg::DoorUnlockDone(Ok(_))) => (ModelDoor::Unlocked, vec![]),
-        (ModelDoor::WillLock { .. }, Msg::DoorLockDone(Err(_))) => {
-            (ModelDoor::Locked, vec![Effect::LockDoor])
-        }
-        (ModelDoor::WillUnlock { .. }, Msg::DoorUnlockDone(Err(_))) => {
-            (ModelDoor::Locked, vec![Effect::UnlockDoor])
-        }
-        _ => (model, vec![]),
     }
 }
 
