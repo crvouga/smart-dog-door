@@ -97,6 +97,9 @@ impl RunEffect {
                     .event_sender
                     .send(Event::FramesClassifyDone(classifications));
             }
+            Effect::Notify { message } => {
+                println!("{}", message);
+            }
         }
     }
 }

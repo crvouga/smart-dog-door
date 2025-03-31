@@ -28,6 +28,9 @@ impl Render {
         device_display.clear()?;
 
         match state {
+            State::Error { message, .. } => {
+                device_display.write_line(0, &format!("Error: {}", message))?;
+            }
             State::DevicesInitializing { device_states } => {
                 match device_states.camera {
                     CameraState::Disconnected => {
