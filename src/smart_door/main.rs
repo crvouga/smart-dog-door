@@ -73,10 +73,7 @@ impl SmartDoor {
         loop {
             match self.event_receiver.lock().unwrap().recv() {
                 Ok(event) => {
-                    let _ = self.logger.info(&format!(
-                        "Processing event: {:?}",
-                        event.to_display_string()
-                    ));
+                    let _ = self.logger.info(&format!("Processing event: {:?}", event));
 
                     let (new_state, effects) = transition(&self.config, current_state, event);
                     current_state = new_state.clone();

@@ -38,9 +38,7 @@ impl RunEffect {
     }
 
     pub fn run_effect(&self, effect: Effect) {
-        let _ = self
-            .logger
-            .info(&format!("Running effect: {:?}", effect.to_display_string()));
+        let _ = self.logger.info(&format!("Running effect: {:?}", effect));
 
         match effect {
             Effect::SubscribeToDoorEvents => {
@@ -92,13 +90,13 @@ impl RunEffect {
                 let _ = self.event_sender.send(Event::FramesCaptureDone(frames));
             }
             Effect::ClassifyFrames { frames } => {
-                let classifications = self.image_classifier.classify(frames.clone());
+                let classifications = self
+                    .image_classifier
+                    .classify(frames.iter().map(|f| f.0.clone()).collect());
+
                 let _ = self
                     .event_sender
                     .send(Event::FramesClassifyDone(classifications));
-            }
-            Effect::Notify { message } => {
-                println!("{}", message);
             }
         }
     }

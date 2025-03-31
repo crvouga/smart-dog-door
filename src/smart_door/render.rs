@@ -28,10 +28,10 @@ impl Render {
         device_display.clear()?;
 
         match state {
-            State::Error { message, .. } => {
-                device_display.write_line(0, &format!("Error: {}", message))?;
+            State::Error { error, .. } => {
+                device_display.write_line(0, &format!("Error: {}", error))?;
             }
-            State::DevicesInitializing { device_states } => {
+            State::DevicesInitializing { device_states, .. } => {
                 match device_states.camera {
                     CameraState::Disconnected => {
                         device_display.write_line(0, "Camera connecting...")?;
@@ -102,17 +102,17 @@ impl Render {
                 device_display.write_line(0, &format!("Locking in {}...", remaining))?;
             }
             State::Idle {
-                message,
-                message_time,
+                status,
+                last_activity,
                 ..
             } => {
-                if message_time.elapsed() > Duration::from_secs(2) {
-                    device_display.write_line(0, "Analyzing...")?;
+                if last_activity.elapsed() > Duration::from_secs(2) {
+                    device_display.write_line(0, status)?;
                 } else {
                     // Split message into lines of max 16 chars
                     let mut line = String::new();
                     let mut first = true;
-                    for word in message.split_whitespace() {
+                    for word in status.split_whitespace() {
                         if line.len() + word.len() + 1 <= 16 {
                             if !line.is_empty() {
                                 line.push(' ');

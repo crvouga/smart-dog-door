@@ -1,15 +1,14 @@
 #[cfg(test)]
 mod core_test {
 
-    use std::time::{Duration, Instant};
-
     use crate::config::{ClassificationConfig, Config};
-    use crate::device_camera::interface::DeviceCameraEvent;
+    use crate::device_camera::interface::{DeviceCameraEvent, Frame};
     use crate::device_door::interface::DeviceDoorEvent;
     use crate::image_classifier::interface::Classification;
     use crate::smart_door::core::{
         init, transition, CameraState, DeviceStates, DoorAction, DoorState, Effect, Event, State,
     };
+    use std::time::{Duration, Instant};
 
     #[test]
     fn test_init() {
@@ -35,7 +34,7 @@ mod core_test {
         );
 
         match state.clone() {
-            State::DevicesInitializing { device_states } => {
+            State::DevicesInitializing { device_states, .. } => {
                 assert!(matches!(device_states.camera, CameraState::Connected(_)));
                 assert!(matches!(device_states.door, DoorState::Disconnected));
             }
@@ -47,7 +46,7 @@ mod core_test {
         let (state, effects) = transition(&config, state, Event::CameraStartDone(Ok(())));
 
         match state {
-            State::DevicesInitializing { device_states } => {
+            State::DevicesInitializing { device_states, .. } => {
                 assert!(matches!(device_states.camera, CameraState::Started));
             }
             _ => panic!("Unexpected state"),
@@ -68,7 +67,7 @@ mod core_test {
         );
 
         match state.clone() {
-            State::DevicesInitializing { device_states } => {
+            State::DevicesInitializing { device_states, .. } => {
                 assert!(matches!(device_states.door, DoorState::Connected(_)));
                 assert!(matches!(device_states.camera, CameraState::Disconnected));
             }
@@ -80,7 +79,7 @@ mod core_test {
         let (state, effects) = transition(&config, state, Event::DoorLockDone(Ok(())));
 
         match state {
-            State::DevicesInitializing { device_states } => {
+            State::DevicesInitializing { device_states, .. } => {
                 assert!(matches!(device_states.door, DoorState::Initialized));
             }
             _ => panic!("Unexpected state"),
@@ -98,10 +97,11 @@ mod core_test {
 
         let state = State::AnalyzingFramesCapture {
             door_state: DoorState::Locked,
+            status: "Analyzing frames".to_string(),
         };
 
         // Test empty frames
-        let frames: Vec<Vec<u8>> = vec![];
+        let frames: Vec<Frame> = vec![];
         let (state, effects) =
             transition(&config, state.clone(), Event::FramesCaptureDone(Ok(frames)));
 
@@ -112,7 +112,7 @@ mod core_test {
         assert_eq!(effects, vec![Effect::CaptureFrames]);
 
         // Test with frames
-        let frames = vec![vec![1, 2, 3]];
+        let frames = vec![Frame(vec![1, 2, 3])];
         let (state, effects) =
             transition(&config, state, Event::FramesCaptureDone(Ok(frames.clone())));
 
@@ -134,6 +134,7 @@ mod core_test {
         let state = State::AnalyzingFramesClassifying {
             door_state: DoorState::Locked,
             frames: vec![],
+            status: "Analyzing frames".to_string(),
         };
 
         let classifications = vec![vec![Classification {
@@ -162,6 +163,7 @@ mod core_test {
         let config = Config::default();
         let state = State::AnalyzingFramesCapture {
             door_state: DoorState::Locked,
+            status: "Analyzing frames".to_string(),
         };
 
         // Test camera disconnection
@@ -172,7 +174,7 @@ mod core_test {
         );
 
         match state.clone() {
-            State::DevicesInitializing { device_states } => {
+            State::DevicesInitializing { device_states, .. } => {
                 assert!(matches!(device_states.camera, CameraState::Disconnected));
                 assert!(matches!(device_states.door, DoorState::Disconnected));
             }
@@ -188,7 +190,7 @@ mod core_test {
         );
 
         match state {
-            State::DevicesInitializing { device_states } => {
+            State::DevicesInitializing { device_states, .. } => {
                 assert!(matches!(device_states.camera, CameraState::Disconnected));
                 assert!(matches!(device_states.door, DoorState::Disconnected));
             }
@@ -202,7 +204,7 @@ mod core_test {
         let (initial_state, initial_effects) = init();
 
         match initial_state {
-            State::DevicesInitializing { device_states } => {
+            State::DevicesInitializing { device_states, .. } => {
                 assert!(matches!(device_states.camera, CameraState::Disconnected));
                 assert!(matches!(device_states.door, DoorState::Disconnected));
             }
@@ -224,6 +226,7 @@ mod core_test {
         let config = Config::default();
         let state = State::DevicesInitializing {
             device_states: DeviceStates::default(),
+            status: "Initializing devices...".to_string(),
         };
 
         // Test camera connects first
@@ -234,7 +237,7 @@ mod core_test {
         );
 
         match state.clone() {
-            State::DevicesInitializing { device_states } => {
+            State::DevicesInitializing { device_states, .. } => {
                 assert!(matches!(device_states.camera, CameraState::Connected(_)));
                 assert!(matches!(device_states.door, DoorState::Disconnected));
             }
@@ -247,7 +250,7 @@ mod core_test {
             transition(&config, state, Event::DoorEvent(DeviceDoorEvent::Connected));
 
         match state {
-            State::DevicesInitializing { device_states } => {
+            State::DevicesInitializing { device_states, .. } => {
                 assert!(matches!(device_states.camera, CameraState::Connected(_)));
                 assert!(matches!(device_states.door, DoorState::Connected(_)));
             }
@@ -261,9 +264,10 @@ mod core_test {
         let config = Config::default();
         let state = State::AnalyzingFramesCapture {
             door_state: DoorState::Locked,
+            status: "Analyzing frames".to_string(),
         };
 
-        let frames = vec![vec![0u8; 100]];
+        let frames = vec![Frame(vec![0u8; 100])];
         let (state, effects) =
             transition(&config, state, Event::FramesCaptureDone(Ok(frames.clone())));
 
@@ -285,6 +289,7 @@ mod core_test {
         let state = State::UnlockedGracePeriod {
             door_state: DoorState::Unlocked,
             countdown_start: start_time,
+            status: "Unlocked grace period".to_string(),
         };
 
         // Test grace period expires
@@ -295,7 +300,7 @@ mod core_test {
         );
 
         match state {
-            State::AnalyzingFramesCapture { door_state } => {
+            State::AnalyzingFramesCapture { door_state, .. } => {
                 assert!(matches!(door_state, DoorState::Unlocked));
             }
             _ => panic!("Unexpected state: {:?}", state),
@@ -314,13 +319,14 @@ mod core_test {
         let state = State::UnlockedGracePeriod {
             door_state: DoorState::Unlocked,
             countdown_start: Instant::now(),
+            status: "Unlocked grace period".to_string(),
         };
 
         // Test that we keep monitoring frames while unlocked
         let (state, effects) = transition(
             &config,
             state,
-            Event::FramesCaptureDone(Ok(vec![vec![1, 2, 3]])),
+            Event::FramesCaptureDone(Ok(vec![Frame(vec![1, 2, 3])])),
         );
 
         match state {

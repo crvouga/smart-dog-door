@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::device_camera::interface::DeviceCameraEvent;
+use crate::device_camera::interface::{DeviceCameraEvent, Frame};
 use crate::device_door::interface::DeviceDoorEvent;
 use crate::image_classifier::interface::Classification;
 use std::time::{Duration, Instant};
@@ -31,42 +31,52 @@ pub enum DoorState {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum State {
     /// Initial state while devices are connecting
-    DevicesInitializing { device_states: DeviceStates },
+    DevicesInitializing {
+        device_states: DeviceStates,
+        status: String,
+    },
     /// Capturing frames from cameras for analysis
-    AnalyzingFramesCapture { door_state: DoorState },
+    AnalyzingFramesCapture {
+        door_state: DoorState,
+        status: String,
+    },
     /// Classifying captured frames to detect animals
     AnalyzingFramesClassifying {
         door_state: DoorState,
-        frames: Vec<Vec<u8>>,
+        frames: Vec<Frame>,
+        status: String,
     },
     /// Actively controlling the door (locking/unlocking)
     ControllingDoor {
         action: DoorAction,
         door_state: DoorState,
         start_time: Instant,
+        status: String,
     },
     /// Waiting state between operations
     Idle {
         door_state: DoorState,
-        message: String,
-        message_time: Instant,
-        last_classification: Instant,
+        status: String,
+        last_activity: Instant,
     },
     /// Period after unlocking to allow dog to pass through
     UnlockedGracePeriod {
         door_state: DoorState,
         countdown_start: Instant,
+        status: String,
     },
     /// Period before locking to ensure no dog is present
     LockingGracePeriod {
         door_state: DoorState,
         countdown_start: Instant,
         last_detection: Instant,
+        status: String,
     },
     /// Emergency state if something goes wrong
     Error {
-        message: String,
+        error: String,
         door_state: DoorState,
+        recovery_actions: Vec<Effect>,
     },
 }
 
@@ -85,16 +95,9 @@ pub enum Event {
     DoorLockDone(Result<(), Box<dyn std::error::Error + Send + Sync>>),
     DoorUnlockDone(Result<(), Box<dyn std::error::Error + Send + Sync>>),
     FramesClassifyDone(Result<Vec<Vec<Classification>>, Box<dyn std::error::Error + Send + Sync>>),
-    FramesCaptureDone(Result<Vec<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>>),
-}
-
-impl Event {
-    pub fn to_display_string(&self) -> String {
-        match self {
-            Event::FramesCaptureDone(Ok(_)) => "Frames captured successfully".to_string(),
-            e => format!("{:?}", e),
-        }
-    }
+    FramesCaptureDone(Result<Vec<Frame>, Box<dyn std::error::Error + Send + Sync>>),
+    #[allow(dead_code)]
+    ManualOverride(DoorAction),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -103,27 +106,17 @@ pub enum Effect {
     LockDoor,
     UnlockDoor,
     CaptureFrames,
-    ClassifyFrames { frames: Vec<Vec<u8>> },
+    ClassifyFrames { frames: Vec<Frame> },
     SubscribeToCameraEvents,
     SubscribeToDoorEvents,
     SubscribeTick,
-    Notify { message: String },
-}
-
-impl Effect {
-    pub fn to_display_string(&self) -> String {
-        match self {
-            Effect::ClassifyFrames { .. } => "Classify frames".to_string(),
-            Effect::Notify { message } => format!("Notify: {}", message),
-            e => format!("{:?}", e),
-        }
-    }
 }
 
 pub fn init() -> (State, Vec<Effect>) {
     (
         State::DevicesInitializing {
             device_states: DeviceStates::default(),
+            status: "Initializing devices...".to_string(),
         },
         vec![
             Effect::SubscribeToDoorEvents,
@@ -137,7 +130,7 @@ pub fn transition(config: &Config, state: State, event: Event) -> (State, Vec<Ef
     match (state.clone(), event) {
         // Device initialization
         (
-            State::DevicesInitializing { device_states },
+            State::DevicesInitializing { device_states, .. },
             Event::CameraEvent(DeviceCameraEvent::Connected),
         ) => {
             let new_states = DeviceStates {
@@ -147,21 +140,29 @@ pub fn transition(config: &Config, state: State, event: Event) -> (State, Vec<Ef
             (
                 State::DevicesInitializing {
                     device_states: new_states,
+                    status: "Camera connected - starting...".to_string(),
                 },
                 vec![Effect::StartCamera],
             )
         }
 
-        (State::DevicesInitializing { device_states }, Event::CameraStartDone(Ok(()))) => {
+        (State::DevicesInitializing { device_states, .. }, Event::CameraStartDone(Ok(()))) => {
             let new_states = DeviceStates {
                 camera: CameraState::Started,
                 door: device_states.door.clone(),
+            };
+
+            let status = if device_states.door == DoorState::Initialized {
+                "Camera started - ready to capture frames".to_string()
+            } else {
+                "Camera started - waiting for door".to_string()
             };
 
             if device_states.door == DoorState::Initialized {
                 (
                     State::AnalyzingFramesCapture {
                         door_state: DoorState::Locked,
+                        status,
                     },
                     vec![Effect::CaptureFrames],
                 )
@@ -169,6 +170,7 @@ pub fn transition(config: &Config, state: State, event: Event) -> (State, Vec<Ef
                 (
                     State::DevicesInitializing {
                         device_states: new_states,
+                        status,
                     },
                     vec![],
                 )
@@ -176,7 +178,7 @@ pub fn transition(config: &Config, state: State, event: Event) -> (State, Vec<Ef
         }
 
         (
-            State::DevicesInitializing { device_states },
+            State::DevicesInitializing { device_states, .. },
             Event::DoorEvent(DeviceDoorEvent::Connected),
         ) => {
             let new_states = DeviceStates {
@@ -186,21 +188,29 @@ pub fn transition(config: &Config, state: State, event: Event) -> (State, Vec<Ef
             (
                 State::DevicesInitializing {
                     device_states: new_states,
+                    status: "Door connected - initializing...".to_string(),
                 },
                 vec![Effect::LockDoor],
             )
         }
 
-        (State::DevicesInitializing { device_states }, Event::DoorLockDone(Ok(()))) => {
+        (State::DevicesInitializing { device_states, .. }, Event::DoorLockDone(Ok(()))) => {
             let new_states = DeviceStates {
                 camera: device_states.camera.clone(),
                 door: DoorState::Initialized,
+            };
+
+            let status = if device_states.camera == CameraState::Started {
+                "Door initialized - starting capture".to_string()
+            } else {
+                "Door initialized - waiting for camera".to_string()
             };
 
             if device_states.camera == CameraState::Started {
                 (
                     State::AnalyzingFramesCapture {
                         door_state: DoorState::Locked,
+                        status,
                     },
                     vec![Effect::CaptureFrames],
                 )
@@ -208,6 +218,7 @@ pub fn transition(config: &Config, state: State, event: Event) -> (State, Vec<Ef
                 (
                     State::DevicesInitializing {
                         device_states: new_states,
+                        status,
                     },
                     vec![],
                 )
@@ -215,10 +226,16 @@ pub fn transition(config: &Config, state: State, event: Event) -> (State, Vec<Ef
         }
 
         // Main operation flow
-        (State::AnalyzingFramesCapture { door_state }, Event::FramesCaptureDone(Ok(frames))) => {
+        (
+            State::AnalyzingFramesCapture { door_state, .. },
+            Event::FramesCaptureDone(Ok(frames)),
+        ) => {
             if frames.is_empty() {
                 (
-                    State::AnalyzingFramesCapture { door_state },
+                    State::AnalyzingFramesCapture {
+                        door_state,
+                        status: "No frames captured - retrying...".to_string(),
+                    },
                     vec![Effect::CaptureFrames],
                 )
             } else {
@@ -226,6 +243,7 @@ pub fn transition(config: &Config, state: State, event: Event) -> (State, Vec<Ef
                     State::AnalyzingFramesClassifying {
                         door_state: door_state.clone(),
                         frames: frames.clone(),
+                        status: format!("Analyzing {} frames...", frames.len()),
                     },
                     vec![Effect::ClassifyFrames { frames }],
                 )
@@ -264,39 +282,32 @@ pub fn transition(config: &Config, state: State, event: Event) -> (State, Vec<Ef
                         action: DoorAction::Unlocking,
                         door_state: door_state.clone(),
                         start_time: Instant::now(),
+                        status: "Dog detected - unlocking door".to_string(),
                     },
-                    vec![
-                        Effect::UnlockDoor,
-                        Effect::Notify {
-                            message: "Dog detected - unlocking door".to_string(),
-                        },
-                    ],
+                    vec![Effect::UnlockDoor],
                 ),
                 (false, true, DoorState::Unlocked) => (
                     State::LockingGracePeriod {
                         door_state,
                         countdown_start: Instant::now(),
                         last_detection: Instant::now(),
+                        status: "Cat detected - preparing to lock".to_string(),
                     },
-                    vec![Effect::Notify {
-                        message: "Cat detected - preparing to lock".to_string(),
-                    }],
+                    vec![],
                 ),
                 (false, true, _) => (
                     State::Idle {
                         door_state,
-                        message: "Cat detected - door remains locked".to_string(),
-                        message_time: Instant::now(),
-                        last_classification: Instant::now(),
+                        status: "Cat detected - door remains locked".to_string(),
+                        last_activity: Instant::now(),
                     },
                     vec![],
                 ),
                 _ => (
                     State::Idle {
                         door_state,
-                        message: "No relevant animals detected".to_string(),
-                        message_time: Instant::now(),
-                        last_classification: Instant::now(),
+                        status: "No relevant animals detected".to_string(),
+                        last_activity: Instant::now(),
                     },
                     vec![],
                 ),
@@ -309,6 +320,7 @@ pub fn transition(config: &Config, state: State, event: Event) -> (State, Vec<Ef
                 door_state,
                 countdown_start,
                 last_detection,
+                ..
             },
             Event::Tick(now),
         ) => {
@@ -321,21 +333,26 @@ pub fn transition(config: &Config, state: State, event: Event) -> (State, Vec<Ef
                         action: DoorAction::Locking,
                         door_state,
                         start_time: Instant::now(),
+                        status: "Locking grace period ended - locking door".to_string(),
                     },
                     vec![Effect::LockDoor],
                 )
             } else if since_last_detection >= Duration::from_secs(5) {
-                // If no new detections for 5 seconds, check again
                 (
-                    State::AnalyzingFramesCapture { door_state },
+                    State::AnalyzingFramesCapture {
+                        door_state,
+                        status: "No recent detections - verifying...".to_string(),
+                    },
                     vec![Effect::CaptureFrames],
                 )
             } else {
+                let remaining = config.locking_grace_period - grace_elapsed;
                 (
                     State::LockingGracePeriod {
                         door_state,
                         countdown_start,
                         last_detection,
+                        status: format!("Locking in {} seconds", remaining.as_secs()),
                     },
                     vec![],
                 )
@@ -346,19 +363,25 @@ pub fn transition(config: &Config, state: State, event: Event) -> (State, Vec<Ef
             State::UnlockedGracePeriod {
                 door_state,
                 countdown_start,
+                ..
             },
             Event::Tick(now),
         ) => {
             if now.duration_since(countdown_start) >= config.unlock_grace_period {
                 (
-                    State::AnalyzingFramesCapture { door_state },
+                    State::AnalyzingFramesCapture {
+                        door_state,
+                        status: "Unlock grace period ended".to_string(),
+                    },
                     vec![Effect::CaptureFrames],
                 )
             } else {
+                let elapsed = now.duration_since(countdown_start);
                 (
                     State::UnlockedGracePeriod {
                         door_state,
                         countdown_start,
+                        status: format!("Unlocked for {} seconds", elapsed.as_secs()),
                     },
                     vec![],
                 )
@@ -369,9 +392,8 @@ pub fn transition(config: &Config, state: State, event: Event) -> (State, Vec<Ef
         (State::ControllingDoor { .. }, Event::DoorLockDone(Ok(_))) => (
             State::Idle {
                 door_state: DoorState::Locked,
-                message: "Door locked successfully".to_string(),
-                message_time: Instant::now(),
-                last_classification: Instant::now(),
+                status: "Door locked successfully".to_string(),
+                last_activity: Instant::now(),
             },
             vec![],
         ),
@@ -380,77 +402,106 @@ pub fn transition(config: &Config, state: State, event: Event) -> (State, Vec<Ef
             State::UnlockedGracePeriod {
                 door_state: DoorState::Unlocked,
                 countdown_start: Instant::now(),
+                status: "Door unlocked successfully".to_string(),
             },
             vec![],
         ),
 
-        (
-            State::ControllingDoor {
-                action: _,
-                door_state,
-                start_time: _,
-            },
-            Event::DoorLockDone(Err(e)),
-        ) => (
+        (State::ControllingDoor { door_state, .. }, Event::DoorLockDone(Err(e))) => (
             State::Error {
-                message: format!("Failed to lock door: {}", e),
-                door_state: door_state.clone(),
+                error: format!("Failed to lock door: {}", e),
+                door_state,
+                recovery_actions: vec![Effect::LockDoor],
             },
-            vec![Effect::Notify {
-                message: "Door lock failed!".to_string(),
-            }],
+            vec![],
         ),
 
-        (
-            State::ControllingDoor {
-                action: _,
-                door_state,
-                start_time: _,
-            },
-            Event::DoorUnlockDone(Err(e)),
-        ) => (
+        (State::ControllingDoor { door_state, .. }, Event::DoorUnlockDone(Err(e))) => (
             State::Error {
-                message: format!("Failed to unlock door: {}", e),
-                door_state: door_state.clone(),
+                error: format!("Failed to unlock door: {}", e),
+                door_state,
+                recovery_actions: vec![Effect::UnlockDoor],
             },
-            vec![Effect::Notify {
-                message: "Door unlock failed!".to_string(),
-            }],
+            vec![],
         ),
+
+        // Manual override
+        (state, Event::ManualOverride(DoorAction::Unlocking)) => match state {
+            State::LockingGracePeriod { door_state, .. } | State::Idle { door_state, .. } => (
+                State::ControllingDoor {
+                    action: DoorAction::Unlocking,
+                    door_state,
+                    start_time: Instant::now(),
+                    status: "Manual unlock initiated".to_string(),
+                },
+                vec![Effect::UnlockDoor],
+            ),
+            _ => (state, vec![]),
+        },
+
+        (state, Event::ManualOverride(DoorAction::Locking)) => match state {
+            State::UnlockedGracePeriod { door_state, .. } => (
+                State::ControllingDoor {
+                    action: DoorAction::Locking,
+                    door_state,
+                    start_time: Instant::now(),
+                    status: "Manual lock initiated".to_string(),
+                },
+                vec![Effect::LockDoor],
+            ),
+            _ => (state, vec![]),
+        },
 
         // Error recovery
-        (State::Error { .. }, Event::DoorEvent(DeviceDoorEvent::Connected)) => (
+        (
+            State::Error {
+                recovery_actions, ..
+            },
+            Event::DoorEvent(DeviceDoorEvent::Connected),
+        ) => (
             State::DevicesInitializing {
                 device_states: DeviceStates {
                     camera: CameraState::Disconnected,
                     door: DoorState::Connected(Instant::now()),
                 },
+                status: "Door reconnected - recovering".to_string(),
             },
-            vec![Effect::LockDoor],
+            recovery_actions,
         ),
 
-        (State::Error { door_state, .. }, Event::CameraEvent(DeviceCameraEvent::Connected)) => (
+        (
+            State::Error {
+                door_state,
+                recovery_actions,
+                ..
+            },
+            Event::CameraEvent(DeviceCameraEvent::Connected),
+        ) => (
             State::DevicesInitializing {
                 device_states: DeviceStates {
                     camera: CameraState::Connected(Instant::now()),
                     door: door_state,
                 },
+                status: "Camera reconnected - recovering".to_string(),
             },
-            vec![Effect::StartCamera],
+            recovery_actions,
         ),
 
         // Periodic checks
         (
             State::Idle {
                 door_state,
-                last_classification,
+                last_activity,
                 ..
             },
             Event::Tick(now),
         ) => {
-            if now.duration_since(last_classification) >= config.analyze_rate {
+            if now.duration_since(last_activity) >= config.analyze_rate {
                 (
-                    State::AnalyzingFramesCapture { door_state },
+                    State::AnalyzingFramesCapture {
+                        door_state,
+                        status: "Periodic check".to_string(),
+                    },
                     vec![Effect::CaptureFrames],
                 )
             } else {
@@ -462,6 +513,7 @@ pub fn transition(config: &Config, state: State, event: Event) -> (State, Vec<Ef
         (_, Event::CameraEvent(DeviceCameraEvent::Disconnected)) => (
             State::DevicesInitializing {
                 device_states: DeviceStates::default(),
+                status: "Camera disconnected".to_string(),
             },
             vec![],
         ),
@@ -469,6 +521,7 @@ pub fn transition(config: &Config, state: State, event: Event) -> (State, Vec<Ef
         (_, Event::DoorEvent(DeviceDoorEvent::Disconnected)) => (
             State::DevicesInitializing {
                 device_states: DeviceStates::default(),
+                status: "Door disconnected".to_string(),
             },
             if matches!(state, State::UnlockedGracePeriod { .. }) {
                 vec![Effect::LockDoor]
