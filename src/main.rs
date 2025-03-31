@@ -3,7 +3,7 @@ use crate::{
     device_camera::impl_multi::MultiDeviceCamera,
     device_display::impl_console::DeviceDisplayConsole, device_door::impl_fake::DeviceDoorFake,
     image_classifier::impl_fake::ImageClassifierFake, library::logger::impl_console::LoggerConsole,
-    smart_door::smart_door_::SmartDoor,
+    smart_door::main::SmartDoor,
 };
 use std::sync::{Arc, Mutex};
 
@@ -17,8 +17,6 @@ mod smart_door;
 
 fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let device_display = Arc::new(Mutex::new(DeviceDisplayConsole::new()));
-
-    // Run smart door logic in a new thread
 
     let config = Config::default();
     let logger = Arc::new(LoggerConsole::new(config.logger_timezone));

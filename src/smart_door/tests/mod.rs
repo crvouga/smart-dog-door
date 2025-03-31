@@ -1,1 +1,2 @@
-mod smart_door_test;
+pub mod core_test;
+pub mod fixture;

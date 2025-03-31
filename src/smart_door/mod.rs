@@ -1,3 +1,5 @@
-pub mod smart_door_;
-#[cfg(test)]
-mod tests;
+pub mod core;
+pub mod main;
+pub mod render;
+pub mod run_effect;
+pub mod tests;
