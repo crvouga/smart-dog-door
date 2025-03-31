@@ -1,10 +1,10 @@
 use device_camera::impl_multi::MultiDeviceCamera;
+use device_display::impl_gui::DeviceDisplayGui;
 
 use crate::{
     config::Config, device_camera::impl_fake::DeviceCameraFake,
-    device_display::impl_console::DeviceDisplayConsole, device_door::impl_fake::DeviceDoorFake,
-    image_classifier::impl_fake::ImageClassifierFake, library::logger::impl_console::LoggerConsole,
-    smart_door::SmartDoor,
+    device_door::impl_fake::DeviceDoorFake, image_classifier::impl_fake::ImageClassifierFake,
+    library::logger::impl_console::LoggerConsole, smart_door::SmartDoor,
 };
 use std::sync::{Arc, Mutex};
 
@@ -28,7 +28,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let device_door = Arc::new(DeviceDoorFake::new(logger.clone()));
 
-    let device_display = Arc::new(Mutex::new(DeviceDisplayConsole::new()));
+    let device_display = Arc::new(Mutex::new(DeviceDisplayGui::new()));
 
     let image_classifier = Arc::new(ImageClassifierFake::new(logger.clone()));
 

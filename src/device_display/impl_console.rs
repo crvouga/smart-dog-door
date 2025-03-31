@@ -7,6 +7,7 @@ pub struct DeviceDisplayConsole {
 }
 
 impl DeviceDisplayConsole {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self {
             display_buffer: [[' '; 16]; 2],
