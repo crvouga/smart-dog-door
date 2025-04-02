@@ -44,7 +44,6 @@ impl SmartDoor {
     }
 
     pub fn send(&self, msg: Msg) {
-        println!("send msg: {:?}", msg);
         let _ = self.sender.send(msg);
     }
 
