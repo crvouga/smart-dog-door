@@ -73,9 +73,15 @@ impl SmartDoor {
         loop {
             match self.event_receiver.lock().unwrap().recv() {
                 Ok(event) => {
-                    let _ = self.logger.info(&format!("Processing event: {:?}", event));
-
+                    let _ = self.logger.info(&format!(
+                        "\nold model:\n\t{:?}\n\nevent:\n\t{:?}",
+                        current_model, event,
+                    ));
                     let (new_model, effects) = transition(&self.config, current_model, event);
+                    let _ = self.logger.info(&format!(
+                        "\nnew model:\n\t{:?}\n\neffects:\n\t{:?}",
+                        new_model, effects
+                    ));
                     current_model = new_model.clone();
                     *self.model.lock().unwrap() = new_model;
 

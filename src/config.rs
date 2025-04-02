@@ -21,10 +21,10 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             tick_rate: Duration::from_secs(1),
-            minimal_rate_camera_process: Duration::from_secs(5),
+            minimal_rate_camera_process: Duration::from_secs(1),
             logger_timezone: mountain_standard_time(),
-            minimal_duration_unlocking: Duration::from_secs(0),
-            minimal_duration_locking: Duration::from_secs(5),
+            minimal_duration_unlocking: Duration::from_secs(1),
+            minimal_duration_locking: Duration::from_secs(3),
             classification_lock_list: vec![ClassificationConfig {
                 label: "cat".to_string(),
                 min_confidence: 0.5,

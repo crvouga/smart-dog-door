@@ -154,10 +154,7 @@ fn transition_connecting(
     };
 
     if is_all_devices_connected(&model_new) {
-        (
-            Model::Ready(ModelReady::default()),
-            vec![Effect::CaptureFrames],
-        )
+        (Model::Ready(ModelReady::default()), vec![])
     } else {
         (Model::Connecting(model_new), vec![])
     }
@@ -233,6 +230,7 @@ fn transition_ready_main(
 ) -> (ModelReady, Vec<Effect>) {
     let mut effects = vec![];
     let camera = transition_ready_camera(config, model.camera.clone(), &msg);
+    effects.extend(camera.1);
 
     let detection_before = to_detection(&model.camera, config);
     let detection_after = to_detection(&camera.0, config);
