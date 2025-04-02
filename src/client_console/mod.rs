@@ -32,7 +32,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         image_classifier,
     );
 
-    smart_door.run().unwrap();
+    smart_door.run();
 
     Ok(())
 }

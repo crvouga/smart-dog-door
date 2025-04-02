@@ -10,7 +10,8 @@ use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
 pub struct SmartDoor {
-    pub chan: Arc<Mutex<(Sender<Msg>, Receiver<Msg>)>>,
+    pub sender: Sender<Msg>,
+    pub receiver: Arc<Mutex<Receiver<Msg>>>,
     pub config: Config,
     pub logger: Arc<dyn Logger + Send + Sync>,
     pub device_camera: Arc<dyn DeviceCamera + Send + Sync>,
@@ -28,6 +29,8 @@ impl SmartDoor {
         device_display: Arc<Mutex<dyn DeviceDisplay + Send + Sync>>,
         image_classifier: Arc<dyn ImageClassifier + Send + Sync>,
     ) -> Self {
+        let (sender, receiver) = channel();
+        let receiver = Arc::new(Mutex::new(receiver));
         Self {
             config,
             logger,
@@ -35,15 +38,17 @@ impl SmartDoor {
             device_door,
             device_display,
             image_classifier,
-            chan: Arc::new(Mutex::new(channel())),
+            sender,
+            receiver,
         }
     }
 
     pub fn send(&self, msg: Msg) {
-        let _ = self.chan.lock().unwrap().0.send(msg);
+        println!("send msg: {:?}", msg);
+        let _ = self.sender.send(msg);
     }
 
     pub fn recv(&self) -> Msg {
-        self.chan.lock().unwrap().1.recv().unwrap()
+        self.receiver.lock().unwrap().recv().unwrap()
     }
 }

@@ -10,9 +10,6 @@ impl SmartDoor {
         device_display.clear()?;
 
         match model {
-            Model::Initializing => {
-                device_display.write_line(0, "initializing...")?;
-            }
             Model::Connecting(connecting) => {
                 let camera_text = match connecting.camera {
                     ModelDeviceConnection::Connected => "camera connected",

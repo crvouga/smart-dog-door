@@ -6,6 +6,8 @@ impl SmartDoor {
     pub fn execute_effect(&self, effect: Effect) {
         let _ = self.logger.info(&format!("Running effect: {:?}", effect));
 
+        println!("execute_effect effect: {:?}", effect);
+
         match effect {
             Effect::SubscribeDoor => {
                 let events = self.device_door.events();
