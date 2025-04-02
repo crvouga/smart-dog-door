@@ -1,43 +1,9 @@
-use crate::config::Config;
-use crate::device_camera::interface::DeviceCamera;
-use crate::device_door::interface::DeviceDoor;
-use crate::image_classifier::interface::ImageClassifier;
-use crate::library::logger::interface::Logger;
+use super::main::SmartDoor;
 use crate::smart_door::core::{Effect, Msg};
-use std::sync::mpsc::Sender;
-use std::sync::Arc;
 use std::time::Instant;
 
-#[derive(Clone)]
-pub struct RunEffect {
-    config: Config,
-    logger: Arc<dyn Logger + Send + Sync>,
-    device_camera: Arc<dyn DeviceCamera + Send + Sync>,
-    device_door: Arc<dyn DeviceDoor + Send + Sync>,
-    image_classifier: Arc<dyn ImageClassifier + Send + Sync>,
-    event_sender: Sender<Msg>,
-}
-
-impl RunEffect {
-    pub fn new(
-        config: Config,
-        logger: Arc<dyn Logger + Send + Sync>,
-        device_camera: Arc<dyn DeviceCamera + Send + Sync>,
-        device_door: Arc<dyn DeviceDoor + Send + Sync>,
-        image_classifier: Arc<dyn ImageClassifier + Send + Sync>,
-        event_sender: Sender<Msg>,
-    ) -> Self {
-        Self {
-            config,
-            logger,
-            device_camera,
-            device_door,
-            image_classifier,
-            event_sender,
-        }
-    }
-
-    pub fn run_effect(&self, effect: Effect) {
+impl SmartDoor {
+    pub fn interpret_effect(&self, effect: Effect) {
         let _ = self.logger.info(&format!("Running effect: {:?}", effect));
 
         match effect {

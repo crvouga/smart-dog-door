@@ -5,20 +5,21 @@ use crate::device_door::interface::DeviceDoor;
 use crate::image_classifier::interface::ImageClassifier;
 use crate::library::logger::interface::Logger;
 use crate::smart_door::core::{init, transition, Effect, Model, Msg};
-use crate::smart_door::render::Render;
-use crate::smart_door::run_effect::RunEffect;
 use std::io;
-use std::sync::mpsc::{channel, Receiver};
+use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
 pub struct SmartDoor {
-    model: Arc<Mutex<Model>>,
-    event_receiver: Arc<Mutex<Receiver<Msg>>>,
-    config: Config,
-    logger: Arc<dyn Logger + Send + Sync>,
-    effect_runner: RunEffect,
-    renderer: Render,
+    pub model: Arc<Mutex<Model>>,
+    pub event_sender: Sender<Msg>,
+    pub event_receiver: Arc<Mutex<Receiver<Msg>>>,
+    pub config: Config,
+    pub logger: Arc<dyn Logger + Send + Sync>,
+    pub device_camera: Arc<dyn DeviceCamera + Send + Sync>,
+    pub device_door: Arc<dyn DeviceDoor + Send + Sync>,
+    pub device_display: Arc<Mutex<dyn DeviceDisplay + Send + Sync>>,
+    pub image_classifier: Arc<dyn ImageClassifier + Send + Sync>,
 }
 
 impl SmartDoor {
@@ -33,22 +34,14 @@ impl SmartDoor {
         let (event_sender, event_receiver) = channel();
         let initial = init();
 
-        let effect_runner = RunEffect::new(
-            config.clone(),
-            logger.clone(),
-            device_camera,
-            device_door,
-            image_classifier,
-            event_sender.clone(),
-        );
-
-        let renderer = Render::new(device_display, config.clone());
-
         Self {
             config,
             logger,
-            effect_runner,
-            renderer,
+            device_camera,
+            device_door,
+            device_display,
+            image_classifier,
+            event_sender,
             event_receiver: Arc::new(Mutex::new(event_receiver)),
             model: Arc::new(Mutex::new(initial.0)),
         }
@@ -58,7 +51,7 @@ impl SmartDoor {
         for effect in effects {
             let effect_clone = effect.clone();
             let self_clone = self.clone();
-            std::thread::spawn(move || self_clone.effect_runner.run_effect(effect_clone));
+            std::thread::spawn(move || self_clone.interpret_effect(effect_clone));
         }
     }
 
@@ -85,7 +78,7 @@ impl SmartDoor {
                     current_model = new_model.clone();
                     *self.model.lock().unwrap() = new_model;
 
-                    if let Err(e) = self.renderer.render(&self.model.lock().unwrap()) {
+                    if let Err(e) = self.render(&self.model.lock().unwrap()) {
                         return Err::<(), Arc<dyn std::error::Error + Send + Sync>>(Arc::new(
                             io::Error::new(io::ErrorKind::Other, e.to_string()),
                         ));

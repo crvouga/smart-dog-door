@@ -1,29 +1,10 @@
-use crate::config::Config;
-use crate::device_display::interface::DeviceDisplay;
+use super::core::{Detection, ModelDeviceConnection};
+use super::main::SmartDoor;
 use crate::smart_door::core::to_detection;
 use crate::smart_door::core::{Model, ModelDoor};
 use std::sync::Arc;
-use std::sync::Mutex;
 
-use super::core::{Detection, ModelDeviceConnection};
-
-#[derive(Clone)]
-pub struct Render {
-    device_display: Arc<Mutex<dyn DeviceDisplay + Send + Sync>>,
-    config: Config,
-}
-
-impl Render {
-    pub fn new(
-        device_display: Arc<Mutex<dyn DeviceDisplay + Send + Sync>>,
-        config: Config,
-    ) -> Self {
-        Self {
-            device_display,
-            config,
-        }
-    }
-
+impl SmartDoor {
     pub fn render(&self, model: &Model) -> Result<(), Arc<dyn std::error::Error + Send + Sync>> {
         let mut device_display = self.device_display.lock().unwrap();
         device_display.clear()?;
