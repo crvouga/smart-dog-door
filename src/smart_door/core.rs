@@ -14,13 +14,14 @@ use std::time::Instant;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Model {
+    Initializing,
     Connecting(ModelConnecting),
     Ready(ModelReady),
 }
 
 impl Default for Model {
     fn default() -> Self {
-        Model::Connecting(ModelConnecting::default())
+        Model::Initializing
     }
 }
 
@@ -112,31 +113,20 @@ pub enum Effect {
 //
 //
 //
-//
-//
-//
-
-pub fn init() -> (Model, Vec<Effect>) {
-    (
-        Model::default(),
-        vec![
-            Effect::SubscribeDoor,
-            Effect::SubscribeCamera,
-            Effect::SubscribeTick,
-        ],
-    )
-}
-
-//
-//
-//
-
-//
-//
-//
 
 pub fn transition(config: &Config, model: Model, msg: Msg) -> (Model, Vec<Effect>) {
-    match (model, msg) {
+    match (model.clone(), msg) {
+        (Model::Initializing, Msg::Tick(_)) => (
+            Model::Connecting(ModelConnecting::default()),
+            vec![
+                Effect::SubscribeDoor,
+                Effect::SubscribeCamera,
+                Effect::SubscribeTick,
+            ],
+        ),
+
+        (Model::Initializing, _) => (model, vec![]),
+
         (Model::Connecting(child), event) => transition_connecting(config, child, event),
 
         (Model::Ready(child), msg) => transition_ready(config, child, msg),

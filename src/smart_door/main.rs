@@ -4,14 +4,13 @@ use crate::device_display::interface::DeviceDisplay;
 use crate::device_door::interface::DeviceDoor;
 use crate::image_classifier::interface::ImageClassifier;
 use crate::library::logger::interface::Logger;
-use crate::smart_door::core::{init, transition, Effect, Model, Msg};
+use crate::smart_door::core::{transition, Effect, Model, Msg};
 use std::io;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
 pub struct SmartDoor {
-    pub model: Arc<Mutex<Model>>,
     pub event_sender: Sender<Msg>,
     pub event_receiver: Arc<Mutex<Receiver<Msg>>>,
     pub config: Config,
@@ -32,7 +31,6 @@ impl SmartDoor {
         image_classifier: Arc<dyn ImageClassifier + Send + Sync>,
     ) -> Self {
         let (event_sender, event_receiver) = channel();
-        let initial = init();
 
         Self {
             config,
@@ -43,7 +41,6 @@ impl SmartDoor {
             image_classifier,
             event_sender,
             event_receiver: Arc::new(Mutex::new(event_receiver)),
-            model: Arc::new(Mutex::new(initial.0)),
         }
     }
 
@@ -56,12 +53,9 @@ impl SmartDoor {
     }
 
     fn run_loop(&self) -> Result<(), Arc<dyn std::error::Error + Send + Sync>> {
-        let initial = init();
-        *self.model.lock().unwrap() = initial.0.clone();
+        let initial = Model::default();
 
-        self.spawn_effects(initial.1);
-
-        let mut current_model = initial.0.clone();
+        let mut current_model = initial.clone();
 
         loop {
             match self.event_receiver.lock().unwrap().recv() {
@@ -75,10 +69,10 @@ impl SmartDoor {
                         "\nnew model:\n\t{:?}\n\neffects:\n\t{:?}",
                         new_model, effects
                     ));
-                    current_model = new_model.clone();
-                    *self.model.lock().unwrap() = new_model;
 
-                    if let Err(e) = self.render(&self.model.lock().unwrap()) {
+                    current_model = new_model.clone();
+
+                    if let Err(e) = self.render(&current_model) {
                         return Err::<(), Arc<dyn std::error::Error + Send + Sync>>(Arc::new(
                             io::Error::new(io::ErrorKind::Other, e.to_string()),
                         ));
