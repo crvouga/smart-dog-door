@@ -3,17 +3,15 @@ mod tests {
     use crate::{
         config::Config,
         smart_door::core::{
-            transition, Effect, Model, ModelCamera, ModelCameraState, ModelConnecting, ModelReady,
-            Msg,
+            init, transition, Effect, Model, ModelCamera, ModelCameraState, ModelConnecting,
+            ModelReady, Msg,
         },
     };
     use std::time::Instant;
 
     #[test]
     fn test_init() {
-        let config = Config::default();
-        let model = Model::default();
-        let (model, effects) = transition(&config, model, Msg::Tick(Instant::now()));
+        let (model, effects) = init();
 
         assert_eq!(model, Model::Connecting(ModelConnecting::default()));
         assert_eq!(

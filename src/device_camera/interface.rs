@@ -1,3 +1,5 @@
+use std::fmt::{self, Debug, Formatter};
+
 #[derive(Debug, Clone)]
 pub enum DeviceCameraEvent {
     Disconnected,
@@ -7,8 +9,8 @@ pub enum DeviceCameraEvent {
 #[derive(Clone, PartialEq, Eq)]
 pub struct Frame(pub Vec<u8>);
 
-impl std::fmt::Debug for Frame {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Debug for Frame {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "Frame")
     }
 }

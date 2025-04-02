@@ -1,16 +1,19 @@
-use super::super::impl_fake::ImageClassifierFake;
-use super::super::interface::ImageClassifier;
+use crate::{
+    image_classifier::{impl_fake::ImageClassifierFake, interface::ImageClassifier},
+    library::logger::impl_console::LoggerConsole,
+};
 use std::sync::Arc;
 
-#[cfg(test)]
 pub struct Fixture {
     pub image_classifier: Arc<dyn ImageClassifier + Send + Sync>,
 }
 
+#[cfg(test)]
 impl Fixture {
     pub fn new() -> Self {
-        Self {
-            image_classifier: Arc::new(ImageClassifierFake::new()),
-        }
+        let offset = chrono::Local::now().offset().to_owned();
+        let logger = Arc::new(LoggerConsole::new(offset));
+        let image_classifier = Arc::new(ImageClassifierFake::new(logger));
+        Self { image_classifier }
     }
 }
