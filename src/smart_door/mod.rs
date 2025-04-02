@@ -1,5 +1,6 @@
-pub mod core;
-pub mod core_test;
-pub mod interpret_effect;
+mod core;
+mod core_test;
+mod effect;
 pub mod main;
-pub mod render;
+mod render;
+mod run;
