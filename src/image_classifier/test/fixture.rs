@@ -9,9 +9,9 @@ pub struct Fixture {
 impl Fixture {
     pub fn new() -> Self {
         let path_mobilenet = "./src/image_classifier/models/mobilenetv2-7.onnx";
-        let path_yolov5 = "./src/image_classifier/models/yolov5s.onnx";
+        // let path_yolov5 = "./src/image_classifier/models/yolov5s.onnx";
 
-        let image_classifier = Arc::new(ImageClassifierTract::new(path_yolov5).unwrap());
+        let image_classifier = Arc::new(ImageClassifierTract::new(path_mobilenet).unwrap());
         Self { image_classifier }
     }
 }

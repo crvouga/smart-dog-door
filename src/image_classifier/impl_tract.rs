@@ -16,20 +16,17 @@ impl ImageClassifierTract {
             .into_optimized()?
             .into_runnable()?;
 
-        // Initialize class mapping for ImageNet classes
+        // Initialize class mapping (can be COCO or ImageNet depending on model)
         let mut class_mapping = HashMap::new();
-        // Cat classes in ImageNet
-        class_mapping.insert(281, "cat".to_string()); // tabby cat
-        class_mapping.insert(282, "cat".to_string()); // tiger cat
-        class_mapping.insert(283, "cat".to_string()); // Persian cat
-        class_mapping.insert(284, "cat".to_string()); // Siamese cat
-        class_mapping.insert(285, "cat".to_string()); // Egyptian cat
-                                                      // Dog classes in ImageNet
-        class_mapping.insert(151, "dog".to_string()); // Chihuahua
-        class_mapping.insert(152, "dog".to_string()); // Japanese spaniel
-        class_mapping.insert(153, "dog".to_string()); // Maltese dog
-        class_mapping.insert(154, "dog".to_string()); // Pekinese
-        class_mapping.insert(155, "dog".to_string()); // Shih-Tzu
+        // Common pet classes
+        class_mapping.insert(15, "cat".to_string()); // COCO cat
+        class_mapping.insert(16, "dog".to_string()); // COCO dog
+        class_mapping.insert(281, "cat".to_string()); // ImageNet tabby cat
+        class_mapping.insert(282, "cat".to_string()); // ImageNet tiger cat
+        class_mapping.insert(283, "cat".to_string()); // ImageNet Persian cat
+        class_mapping.insert(151, "dog".to_string()); // ImageNet Chihuahua
+        class_mapping.insert(152, "dog".to_string()); // ImageNet Japanese spaniel
+        class_mapping.insert(153, "dog".to_string()); // ImageNet Maltese dog
 
         Ok(Self {
             model,
@@ -41,21 +38,20 @@ impl ImageClassifierTract {
         &self,
         image: &DynamicImage,
     ) -> Result<Tensor, Box<dyn std::error::Error + Send + Sync>> {
-        // Resize to MobileNetV2's expected input size (224x224)
+        // Use a simpler MobileNet preprocessing approach
+        // Resize to 224x224 (standard for most models)
         let resized = image.resize_exact(224, 224, image::imageops::FilterType::Triangle);
 
         // Convert to RGB format
         let rgb = resized.to_rgb8();
 
-        // Convert to tensor and normalize to [-1, 1]
+        // Convert to tensor with NCHW format for most models
         let tensor = tract_ndarray::Array4::from_shape_fn((1, 3, 224, 224), |(_, c, y, x)| {
             let pixel = rgb.get_pixel(x as u32, y as u32);
-            (pixel[c] as f32 / 127.5) - 1.0
+            pixel[c] as f32 / 255.0 // Simple [0,1] normalization
         });
 
-        // Convert to Tensor
-        let tensor = tensor.into_tensor();
-        Ok(tensor)
+        Ok(tensor.into_tensor())
     }
 }
 
@@ -64,35 +60,62 @@ impl ImageClassifier for ImageClassifierTract {
         &self,
         images: Vec<DynamicImage>,
     ) -> Result<Vec<Vec<Classification>>, Box<dyn std::error::Error + Send + Sync>> {
-        // Process all images
         let mut results = Vec::new();
-        for image in images {
-            // Preprocess image
-            let input = self.preprocess_image(&image)?;
 
-            // Run inference
+        for image in images {
+            // Preprocess image and run model
+            let input = self.preprocess_image(&image)?;
             let outputs = self.model.run(tvec!(input.into_tvalue()))?;
             let output = outputs[0].to_array_view::<f32>()?;
 
-            // Process results - find top 5 predictions
-            let mut predictions: Vec<(usize, f32)> = output
-                .iter()
-                .enumerate()
-                .map(|(i, &score)| (i, score))
-                .collect();
+            // Simple classification approach
+            let mut predictions = Vec::new();
+
+            // Handle common output formats
+            match output.shape() {
+                // MobileNet style output (1000 classes)
+                &[1, 1000] | &[1, 1001] => {
+                    for (idx, &score) in output.iter().enumerate().take(1000) {
+                        if score > 0.1 {
+                            // Only consider reasonable confidence
+                            predictions.push((idx, score));
+                        }
+                    }
+                }
+
+                // Other formats - handle more generically
+                _ => {
+                    // Simple max-finding approach
+                    let shape = output.shape();
+                    if shape.len() >= 2 {
+                        for i in 0..output.shape()[1].min(1000) {
+                            if let Some(&score) = output.get([0, i]) {
+                                if score > 0.1 {
+                                    predictions.push((i, score));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Sort by confidence and take top 5
             predictions.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
             predictions.truncate(5);
 
-            // Convert to our classification format
-            let mut classifications = Vec::new();
-            for (class_idx, confidence) in predictions {
-                if let Some(label) = self.class_mapping.get(&class_idx) {
-                    classifications.push(Classification {
-                        label: label.clone(),
-                        confidence,
-                    });
-                }
-            }
+            // Convert to classifications
+            let classifications = predictions
+                .iter()
+                .filter_map(|(class_idx, confidence)| {
+                    self.class_mapping
+                        .get(class_idx)
+                        .map(|label| Classification {
+                            label: label.clone(),
+                            confidence: *confidence,
+                        })
+                })
+                .collect();
+
             results.push(classifications);
         }
 
