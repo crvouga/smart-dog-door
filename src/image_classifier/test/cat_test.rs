@@ -16,9 +16,12 @@ fn test_cat() {
 
         println!("classifications: {:?}", classifications);
 
-        let has_cat = classifications
-            .iter()
-            .any(|c| c.label == "cat" && c.confidence > 0.1);
+        let has_cat =
+            classifications
+                .iter()
+                .any(|c: &crate::image_classifier::interface::Classification| {
+                    c.label == "cat" && c.confidence > 0.1
+                });
 
         assert!(
             has_cat,

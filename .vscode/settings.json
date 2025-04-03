@@ -7,10 +7,13 @@
         "Ingcool",
         "mobilenet",
         "mobilenetv",
+        "NCHW",
+        "ndarray",
         "onnx",
         "rascam",
         "rppal",
         "tflite",
+        "tvec",
         "yolov"
     ]
 }
