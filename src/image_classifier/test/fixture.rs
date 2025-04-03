@@ -11,7 +11,7 @@ pub struct Fixture {
 #[cfg(test)]
 impl Fixture {
     pub fn new() -> Self {
-        let onnx_model_paths = vec![
+        let configs = vec![
             ModelConfig {
                 onnx_model_path: "./src/image_classifier/models/mobilenetv2-7.onnx".to_string(),
                 input_shape: (224, 224),
@@ -22,8 +22,9 @@ impl Fixture {
             },
         ];
 
-        let image_classifier =
-            Arc::new(ImageClassifierTractOnnx::new(onnx_model_paths[0].clone()).unwrap());
+        let config = configs[1].clone();
+
+        let image_classifier = Arc::new(ImageClassifierTractOnnx::new(config).unwrap());
 
         Self { image_classifier }
     }
