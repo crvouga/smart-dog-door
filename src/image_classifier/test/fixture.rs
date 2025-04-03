@@ -1,7 +1,4 @@
-use crate::{
-    image_classifier::{impl_fake::ImageClassifierFake, interface::ImageClassifier},
-    library::logger::impl_console::LoggerConsole,
-};
+use crate::image_classifier::{impl_tract::ImageClassifierTract, interface::ImageClassifier};
 use std::sync::Arc;
 
 pub struct Fixture {
@@ -11,9 +8,10 @@ pub struct Fixture {
 #[cfg(test)]
 impl Fixture {
     pub fn new() -> Self {
-        let offset = chrono::Local::now().offset().to_owned();
-        let logger = Arc::new(LoggerConsole::new(offset));
-        let image_classifier = Arc::new(ImageClassifierFake::new(logger));
+        let path_mobilenet = "./src/image_classifier/models/mobilenetv2-7.onnx";
+        let path_yolov5 = "./src/image_classifier/models/yolov5s.onnx";
+
+        let image_classifier = Arc::new(ImageClassifierTract::new(path_yolov5).unwrap());
         Self { image_classifier }
     }
 }

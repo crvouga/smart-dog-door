@@ -5,9 +5,12 @@
         "egui",
         "imageops",
         "Ingcool",
+        "mobilenet",
+        "mobilenetv",
         "onnx",
         "rascam",
         "rppal",
-        "tflite"
+        "tflite",
+        "yolov"
     ]
 }

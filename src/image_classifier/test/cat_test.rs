@@ -2,16 +2,29 @@ use crate::image_classifier::test::fixture::Fixture;
 
 #[test]
 fn test_cat() {
-    println!("test cat");
     let f = Fixture::new();
-    println!("test cat");
 
-    let image = image::load_from_memory(include_bytes!("./images/cat_clear_front.jpeg")).unwrap();
+    let images = vec![
+        image::open("./src/image_classifier/test/images/cat_clear_front.jpeg").unwrap(),
+        image::open("./src/image_classifier/test/images/cat_security_footage.jpeg").unwrap(),
+    ];
 
-    let result = f.image_classifier.classify(vec![image]);
+    for image in images {
+        let result = f.image_classifier.classify(vec![image]);
 
-    println!("results: {:?}", result);
+        let classifications = result.unwrap();
+        println!("classifications: {:?}", classifications);
+        assert_eq!(classifications.len(), 1);
+        let first_image_classifications = &classifications[0];
+        assert!(!first_image_classifications.is_empty());
 
-    // let result = f.image_classifier.classify_image(image);
-    assert_eq!(1, 2);
+        // Check if any classification is for a cat with high confidence
+        let has_cat = first_image_classifications
+            .iter()
+            .any(|c| c.label == "cat" && c.confidence > 0.5);
+        assert!(
+            has_cat,
+            "Expected to find a cat classification with confidence > 0.5"
+        );
+    }
 }

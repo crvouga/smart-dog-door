@@ -5,16 +5,11 @@ use tract_onnx::prelude::*;
 
 pub struct ImageClassifierTract {
     model: SimplePlan<TypedFact, Box<dyn TypedOp>, TypedModel>,
-    last_process_time: std::time::Instant,
-    min_process_interval: std::time::Duration,
     class_mapping: HashMap<usize, String>,
 }
 
 impl ImageClassifierTract {
-    pub fn new(
-        model_path: &str,
-        process_interval: std::time::Duration,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    pub fn new(model_path: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         // Load the model
         let model = tract_onnx::onnx()
             .model_for_path(model_path)?
@@ -38,8 +33,6 @@ impl ImageClassifierTract {
 
         Ok(Self {
             model,
-            last_process_time: std::time::Instant::now(),
-            min_process_interval: process_interval,
             class_mapping,
         })
     }
@@ -71,12 +64,6 @@ impl ImageClassifier for ImageClassifierTract {
         &self,
         images: Vec<DynamicImage>,
     ) -> Result<Vec<Vec<Classification>>, Box<dyn std::error::Error + Send + Sync>> {
-        // Check if enough time has passed since last processing
-        let now = std::time::Instant::now();
-        if now.duration_since(self.last_process_time) < self.min_process_interval {
-            return Ok(vec![]); // Return empty if called too soon
-        }
-
         // Process all images
         let mut results = Vec::new();
         for image in images {
