@@ -3,6 +3,7 @@
         "chrono",
         "eframe",
         "egui",
+        "imagenet",
         "imageops",
         "Ingcool",
         "mobilenet",

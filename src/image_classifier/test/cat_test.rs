@@ -14,14 +14,12 @@ fn test_cat() {
 
         let classifications = result.unwrap().into_iter().flatten().collect::<Vec<_>>();
 
-        println!("classifications: {:?}", classifications);
+        let cat_classifications = classifications
+            .iter()
+            .filter(|c| c.label.to_lowercase().contains("cat") && c.confidence > 0.9)
+            .collect::<Vec<_>>();
 
-        let has_cat =
-            classifications
-                .iter()
-                .any(|c: &crate::image_classifier::interface::Classification| {
-                    c.label == "cat" && c.confidence > 0.1
-                });
+        let has_cat = cat_classifications.len() > 0;
 
         assert!(
             has_cat,

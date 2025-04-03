@@ -19,6 +19,13 @@ impl ImageClassifierTractOnnx {
     }
 }
 
+fn load_labels() -> Vec<String> {
+    include_str!("imagenet_labels.txt")
+        .lines()
+        .map(|s| s.to_string())
+        .collect()
+}
+
 impl ImageClassifier for ImageClassifierTractOnnx {
     fn classify(
         &self,
@@ -38,11 +45,12 @@ impl ImageClassifier for ImageClassifierTractOnnx {
             let output = self.model.run(tvec!(input_tensor.into()))?;
             let output_tensor = output[0].to_array_view::<f32>()?;
 
+            let labels = load_labels(); // Ensure this has correct class mappings
             let mut classifications = Vec::new();
             for (i, &confidence) in output_tensor.iter().enumerate() {
-                if confidence > 0.1 {
+                if confidence > 0.1 && i < labels.len() {
                     classifications.push(Classification {
-                        label: format!("class_{}", i), // Replace with actual label mapping
+                        label: labels[i].clone(),
                         confidence,
                     });
                 }
