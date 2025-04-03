@@ -59,6 +59,9 @@ impl ImageClassifier for ImageClassifierTractOnnx {
                 }
             }
 
+            // High confidence first
+            classifications.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap());
+
             results.push(classifications);
         }
 
