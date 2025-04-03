@@ -6,7 +6,7 @@ fn test_cat() {
     let f = Fixture::new();
     println!("test cat");
 
-    let image = include_bytes!("./images/cat_clear_front.jpeg").to_vec();
+    let image = image::load_from_memory(include_bytes!("./images/cat_clear_front.jpeg")).unwrap();
 
     let result = f.image_classifier.classify(vec![image]);
 

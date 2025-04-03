@@ -42,7 +42,7 @@ impl SmartDoor {
             Effect::ClassifyFrames { frames } => {
                 let classifications = self
                     .image_classifier
-                    .classify(frames.iter().map(|f| f.0.clone()).collect());
+                    .classify(frames.iter().map(|f| f.clone()).collect());
                 self.send(Msg::FramesClassifyDone(classifications));
             }
         }

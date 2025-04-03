@@ -1,4 +1,6 @@
-use crate::device_camera::interface::{DeviceCamera, DeviceCameraEvent, Frame};
+use image::DynamicImage;
+
+use crate::device_camera::interface::{DeviceCamera, DeviceCameraEvent};
 use crate::library::logger::interface::Logger;
 use std::sync::Arc;
 
@@ -29,12 +31,12 @@ impl DeviceCamera for DeviceCameraFake {
         Ok(())
     }
 
-    fn capture_frame(&self) -> Result<Vec<Frame>, Box<dyn std::error::Error + Send + Sync>> {
+    fn capture_frame(&self) -> Result<Vec<DynamicImage>, Box<dyn std::error::Error + Send + Sync>> {
         self.logger.info("Capturing frame...")?;
         std::thread::sleep(std::time::Duration::from_secs(1));
-        let image = vec![0; 100 * 100 * 3];
+        let image = DynamicImage::new_rgb8(100, 100);
         self.logger.info("Frame captured")?;
-        Ok(vec![Frame(image)])
+        Ok(vec![image])
     }
 
     fn events(&self) -> std::sync::mpsc::Receiver<DeviceCameraEvent> {

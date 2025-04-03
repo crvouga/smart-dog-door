@@ -1,4 +1,4 @@
 pub mod impl_fake;
-// pub mod impl_tensorflow;
+pub mod impl_tract;
 pub mod interface;
 pub mod test;

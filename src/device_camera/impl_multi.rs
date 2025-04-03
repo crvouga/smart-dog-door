@@ -1,4 +1,6 @@
-use crate::device_camera::interface::{DeviceCamera, DeviceCameraEvent, Frame};
+use image::DynamicImage;
+
+use crate::device_camera::interface::{DeviceCamera, DeviceCameraEvent};
 use std::sync::{mpsc, Arc};
 
 pub struct MultiDeviceCamera {
@@ -26,7 +28,7 @@ impl DeviceCamera for MultiDeviceCamera {
         Ok(())
     }
 
-    fn capture_frame(&self) -> Result<Vec<Frame>, Box<dyn std::error::Error + Send + Sync>> {
+    fn capture_frame(&self) -> Result<Vec<DynamicImage>, Box<dyn std::error::Error + Send + Sync>> {
         let mut frames = Vec::new();
         for camera in &self.cameras {
             frames.extend(camera.capture_frame()?);

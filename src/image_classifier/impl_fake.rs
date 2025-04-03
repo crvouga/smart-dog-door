@@ -1,3 +1,5 @@
+use image::DynamicImage;
+
 use crate::image_classifier::interface::{Classification, ImageClassifier};
 use crate::library::logger::interface::Logger;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -22,7 +24,7 @@ impl ImageClassifierFake {
 impl ImageClassifier for ImageClassifierFake {
     fn classify(
         &self,
-        _frames: Vec<Vec<u8>>,
+        _images: Vec<DynamicImage>,
     ) -> Result<Vec<Vec<Classification>>, Box<dyn std::error::Error + Send + Sync>> {
         self.logger.info("Classifying image...")?;
 

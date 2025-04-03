@@ -5,6 +5,7 @@
         "egui",
         "imageops",
         "Ingcool",
+        "onnx",
         "rascam",
         "rppal",
         "tflite"

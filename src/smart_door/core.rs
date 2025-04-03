@@ -1,5 +1,7 @@
+use image::DynamicImage;
+
 use crate::config::Config;
-use crate::device_camera::interface::{DeviceCameraEvent, Frame};
+use crate::device_camera::interface::DeviceCameraEvent;
 use crate::device_door::interface::DeviceDoorEvent;
 use crate::image_classifier::interface::Classification;
 use std::time::Instant;
@@ -94,16 +96,16 @@ pub enum Msg {
     DoorEvent(DeviceDoorEvent),
     DoorCloseDone(Result<(), Box<dyn std::error::Error + Send + Sync>>),
     DoorOpenDone(Result<(), Box<dyn std::error::Error + Send + Sync>>),
-    FramesCaptureDone(Result<Vec<Frame>, Box<dyn std::error::Error + Send + Sync>>),
+    FramesCaptureDone(Result<Vec<DynamicImage>, Box<dyn std::error::Error + Send + Sync>>),
     FramesClassifyDone(Result<Vec<Vec<Classification>>, Box<dyn std::error::Error + Send + Sync>>),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Effect {
     OpenDoor,
     CloseDoor,
     CaptureFrames,
-    ClassifyFrames { frames: Vec<Frame> },
+    ClassifyFrames { frames: Vec<DynamicImage> },
     SubscribeCamera,
     SubscribeDoor,
     SubscribeTick,
