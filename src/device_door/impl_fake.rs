@@ -17,7 +17,7 @@ impl DeviceDoorFake {
 }
 
 impl DeviceDoor for DeviceDoorFake {
-    fn lock(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    fn open(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.logger.info("Locking dog door...")?;
         self.locked.store(true, Ordering::SeqCst);
         std::thread::sleep(std::time::Duration::from_secs(1));
@@ -25,7 +25,7 @@ impl DeviceDoor for DeviceDoorFake {
         Ok(())
     }
 
-    fn unlock(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    fn close(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.logger.info("Unlocking dog door...")?;
         self.locked.store(false, Ordering::SeqCst);
         std::thread::sleep(std::time::Duration::from_secs(1));
@@ -33,7 +33,7 @@ impl DeviceDoor for DeviceDoorFake {
         Ok(())
     }
 
-    fn is_unlocked(&self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+    fn is_open(&self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         Ok(!self.locked.load(Ordering::SeqCst))
     }
 

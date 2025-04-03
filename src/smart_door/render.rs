@@ -35,10 +35,10 @@ impl SmartDoor {
 
                 // Render door state
                 let door_text = match ready.door {
-                    ModelDoor::WillLock { .. } => "locking...",
-                    ModelDoor::Locked => "locked",
-                    ModelDoor::WillUnlock { .. } => "unlocking...",
-                    ModelDoor::Unlocked => "unlocked",
+                    ModelDoor::WillClose { .. } => "locking...",
+                    ModelDoor::Closed => "locked",
+                    ModelDoor::WillOpen { .. } => "unlocking...",
+                    ModelDoor::Opened => "unlocked",
                 };
                 device_display.write_line(1, door_text)?;
             }

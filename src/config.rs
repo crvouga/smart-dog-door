@@ -10,11 +10,11 @@ pub struct ClassificationConfig {
 pub struct Config {
     pub tick_rate: Duration,
     pub minimal_rate_camera_process: Duration,
-    pub classification_lock_list: Vec<ClassificationConfig>,
-    pub classification_unlock_list: Vec<ClassificationConfig>,
+    pub classification_close_list: Vec<ClassificationConfig>,
+    pub classification_open_list: Vec<ClassificationConfig>,
     pub logger_timezone: chrono::FixedOffset,
-    pub minimal_duration_unlocking: Duration,
-    pub minimal_duration_locking: Duration,
+    pub minimal_duration_will_open: Duration,
+    pub minimal_duration_will_close: Duration,
 }
 
 impl Default for Config {
@@ -23,13 +23,13 @@ impl Default for Config {
             tick_rate: Duration::from_secs(1),
             minimal_rate_camera_process: Duration::from_secs(1),
             logger_timezone: mountain_standard_time(),
-            minimal_duration_unlocking: Duration::from_secs(1),
-            minimal_duration_locking: Duration::from_secs(3),
-            classification_lock_list: vec![ClassificationConfig {
+            minimal_duration_will_open: Duration::from_secs(1),
+            minimal_duration_will_close: Duration::from_secs(3),
+            classification_close_list: vec![ClassificationConfig {
                 label: "cat".to_string(),
                 min_confidence: 0.5,
             }],
-            classification_unlock_list: vec![ClassificationConfig {
+            classification_open_list: vec![ClassificationConfig {
                 label: "dog".to_string(),
                 min_confidence: 0.5,
             }],

@@ -27,13 +27,13 @@ impl SmartDoor {
                 std::thread::sleep(self.config.tick_rate);
                 self.send(Msg::Tick(Instant::now()));
             },
-            Effect::LockDoor => {
-                let locked = self.device_door.lock();
-                self.send(Msg::DoorLockDone(locked));
+            Effect::OpenDoor => {
+                let locked = self.device_door.open();
+                self.send(Msg::DoorCloseDone(locked));
             }
-            Effect::UnlockDoor => {
-                let unlocked = self.device_door.unlock();
-                self.send(Msg::DoorUnlockDone(unlocked));
+            Effect::CloseDoor => {
+                let unlocked = self.device_door.close();
+                self.send(Msg::DoorOpenDone(unlocked));
             }
             Effect::CaptureFrames => {
                 let frames = self.device_camera.capture_frame();

@@ -75,15 +75,15 @@ impl Default for ModelCameraState {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ModelDoor {
-    Locked,
-    WillUnlock { start_time: Instant },
-    Unlocked,
-    WillLock { start_time: Instant },
+    Closed,
+    WillOpen { start_time: Instant },
+    Opened,
+    WillClose { start_time: Instant },
 }
 
 impl Default for ModelDoor {
     fn default() -> Self {
-        ModelDoor::Locked
+        ModelDoor::Closed
     }
 }
 
@@ -92,16 +92,16 @@ pub enum Msg {
     Tick(Instant),
     CameraEvent(DeviceCameraEvent),
     DoorEvent(DeviceDoorEvent),
-    DoorLockDone(Result<(), Box<dyn std::error::Error + Send + Sync>>),
-    DoorUnlockDone(Result<(), Box<dyn std::error::Error + Send + Sync>>),
+    DoorCloseDone(Result<(), Box<dyn std::error::Error + Send + Sync>>),
+    DoorOpenDone(Result<(), Box<dyn std::error::Error + Send + Sync>>),
     FramesCaptureDone(Result<Vec<Frame>, Box<dyn std::error::Error + Send + Sync>>),
     FramesClassifyDone(Result<Vec<Vec<Classification>>, Box<dyn std::error::Error + Send + Sync>>),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Effect {
-    LockDoor,
-    UnlockDoor,
+    OpenDoor,
+    CloseDoor,
     CaptureFrames,
     ClassifyFrames { frames: Vec<Frame> },
     SubscribeCamera,
@@ -253,23 +253,21 @@ fn transition_door_on_detection_change(
     }
 
     match (model, detection_after) {
-        (ModelDoor::Locked, Detection::Dog) => (
-            ModelDoor::WillUnlock {
+        (ModelDoor::Closed, Detection::Dog) => (
+            ModelDoor::WillOpen {
                 start_time: Instant::now(),
             },
             vec![],
         ),
-        (ModelDoor::WillUnlock { .. }, Detection::Cat) => {
-            (ModelDoor::Locked, vec![Effect::LockDoor])
-        }
-        (ModelDoor::Unlocked, Detection::None) => (
-            ModelDoor::WillLock {
+        (ModelDoor::WillOpen { .. }, Detection::Cat) => (ModelDoor::Closed, vec![Effect::OpenDoor]),
+        (ModelDoor::Opened, Detection::None) => (
+            ModelDoor::WillClose {
                 start_time: Instant::now(),
             },
             vec![],
         ),
-        (ModelDoor::Unlocked, Detection::Cat) => (
-            ModelDoor::WillLock {
+        (ModelDoor::Opened, Detection::Cat) => (
+            ModelDoor::WillClose {
                 start_time: Instant::now(),
             },
             vec![],
@@ -284,22 +282,22 @@ fn transition_door_on_tick(
     msg: &Msg,
 ) -> (ModelDoor, Vec<Effect>) {
     match (door.clone(), msg) {
-        (ModelDoor::WillUnlock { start_time }, Msg::Tick(now)) => {
-            if now.duration_since(start_time) >= config.minimal_duration_unlocking {
-                (ModelDoor::Unlocked, vec![Effect::UnlockDoor])
+        (ModelDoor::WillOpen { start_time }, Msg::Tick(now)) => {
+            if now.duration_since(start_time) >= config.minimal_duration_will_open {
+                (ModelDoor::Opened, vec![Effect::CloseDoor])
             } else {
                 (door, vec![])
             }
         }
-        (ModelDoor::WillLock { start_time }, Msg::Tick(now)) => {
-            if now.duration_since(start_time) >= config.minimal_duration_locking {
-                (ModelDoor::Locked, vec![Effect::LockDoor])
+        (ModelDoor::WillClose { start_time }, Msg::Tick(now)) => {
+            if now.duration_since(start_time) >= config.minimal_duration_will_close {
+                (ModelDoor::Closed, vec![Effect::OpenDoor])
             } else {
                 (door, vec![])
             }
         }
-        (ModelDoor::WillUnlock { .. }, Msg::DoorUnlockDone(Ok(_))) => (ModelDoor::Unlocked, vec![]),
-        (ModelDoor::WillLock { .. }, Msg::DoorLockDone(Ok(_))) => (ModelDoor::Locked, vec![]),
+        (ModelDoor::WillOpen { .. }, Msg::DoorOpenDone(Ok(_))) => (ModelDoor::Opened, vec![]),
+        (ModelDoor::WillClose { .. }, Msg::DoorCloseDone(Ok(_))) => (ModelDoor::Closed, vec![]),
         _ => (door, vec![]),
     }
 }
@@ -417,25 +415,22 @@ pub enum Detection {
 pub fn to_detection(camera: &ModelCamera, config: &Config) -> Detection {
     let dog_detected = camera.latest_classifications.iter().any(|frame_class| {
         frame_class.iter().any(|c| {
-            config
-                .classification_unlock_list
-                .iter()
-                .any(|unlock_config| {
-                    c.label
-                        .to_lowercase()
-                        .contains(&unlock_config.label.to_lowercase())
-                        && c.confidence >= unlock_config.min_confidence
-                })
+            config.classification_open_list.iter().any(|open_config| {
+                c.label
+                    .to_lowercase()
+                    .contains(&open_config.label.to_lowercase())
+                    && c.confidence >= open_config.min_confidence
+            })
         })
     });
 
     let cat_detected = camera.latest_classifications.iter().any(|frame_class| {
         frame_class.iter().any(|c| {
-            config.classification_lock_list.iter().any(|lock_config| {
+            config.classification_close_list.iter().any(|close_config| {
                 c.label
                     .to_lowercase()
-                    .contains(&lock_config.label.to_lowercase())
-                    && c.confidence >= lock_config.min_confidence
+                    .contains(&close_config.label.to_lowercase())
+                    && c.confidence >= close_config.min_confidence
             })
         })
     });
